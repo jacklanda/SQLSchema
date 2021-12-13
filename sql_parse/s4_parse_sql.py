@@ -53,6 +53,7 @@ import sqlparse
 from utils import (
     rm_kw,
     fmt_str,
+    Counter,
     RegexDict,
 )
 from unit_test import (
@@ -94,6 +95,8 @@ TOKEN_COL = "[COL]"
 COL_DATA_TYPES = ["varchar", "serial", "long", "uuid", "bytea", "json", "string", "char", "binary", "blob", "clob", "text", "enum", "set", "number", "numeric", "bit", "int", "bool", "float", "double", "decimal", "date", "time", "year", "image", "real", "identifier", "raw", "graphic", "money", "geography", "cursor", "rowversion", "hierarchyid", "uniqueidentifier", "sql_variant", "xml", "inet", "cidr", "macaddr", "point", "line", "lseg", "box", "path", "polygon", "circle", "regproc", "tsvector", "sysname"]
 
 REGEX_DICT = RegexDict()
+
+COUNTER, COUNTER_EXCEPT = Counter(), Counter()
 
 
 class Key:
@@ -604,7 +607,7 @@ class File:
                         try:
                             result = re.findall("([`|'|\"].*?[`|'|\"])", col_defs, re.IGNORECASE)[0]
                         except:
-                            print(f"Regex match failed!" + traceback.format_exc())
+                            raise Exception(f"Regex match failed!" + traceback.format_exc())
                         else:
                             c_name = fmt_str(result)
                             c_type = clause.split(result)[1].split()[0]
@@ -631,6 +634,7 @@ class File:
             return tab_obj
         except Exception as e:
             print(e)
+            COUNTER_EXCEPT()
             return None
 
     def parse_one_statement_alter_table(self, stmt):
@@ -673,17 +677,20 @@ class File:
             multicol_list = re.findall("\(.*?\)", stmt, re.IGNORECASE)
             stmt = re.sub("\(.*?\)", "[MULTI-COL]", stmt)
             clauses = stmt.split("alter table")[1].strip().split(',')
-            if len(multicol_list) != 0:
-                temp_list = list()
-                i = 0
-                while i in range(len(multicol_list)):
-                    for c in clauses:
-                        while "[MULTI-COL]" in c:
-                            multicol = multicol_list[i]
-                            c = c.replace("[MULTI-COL]", multicol, 1)
-                            i += 1
-                        temp_list.append(c)
-                clauses = temp_list
+
+            # TODO: potential memory leak here, need to fix.
+            with Timeout(seconds=3):
+                if len(multicol_list) != 0:
+                    temp_list = list()
+                    i = 0
+                    while i in range(len(multicol_list)):
+                        for c in clauses:
+                            while "[MULTI-COL]" in c:
+                                multicol = multicol_list[i]
+                                c = c.replace("[MULTI-COL]", multicol, 1)
+                                i += 1
+                            temp_list.append(c)
+                    clauses = temp_list
 
             # Parse each sub clause according its constraint type
             for clause in (c.strip() for c in clauses):
@@ -808,6 +815,7 @@ class File:
                     print(f"Unhandled operation on alter table: {clause}")
         except Exception as e:
             print(e)
+            COUNTER_EXCEPT()
             return None
 
     def parse_one_statement(self, stmt):
@@ -834,10 +842,12 @@ class File:
         if stmt == "":
             return
         elif "create table" in stmt:
+            COUNTER()
             tab_obj = self.parse_one_statement_create_table(stmt)
             if tab_obj is not None:
                 self.name2tab[tab_obj.tab_name] = tab_obj
         elif "alter table" in stmt:
+            COUNTER()
             self.parse_one_statement_alter_table(stmt)
         elif "create unique" in stmt:
             # TODO: impl this method for handle CREATE UNIQUE INDEX
@@ -846,7 +856,8 @@ class File:
         else:
             # check if the input statement is supported.
             # raise Exception(f"Unhandled table operation: {stmt}")
-            print(f"Unhandled table operation: {stmt}")
+            # print(f"Unhandled table operation: {stmt}")
+            pass
 
 
 def parse_all_files(files, test_stmt=None):
@@ -862,8 +873,8 @@ def parse_all_files(files, test_stmt=None):
     - None
     """
     parsed_file_list = list()
-    cnt_exception = 0
-    cnt_succ = 0
+    # cnt_exception = 0
+    # cnt_succ = 0
     for fp in files:
         print("-" * 77)
         with open(fp, encoding="utf-8") as f:
@@ -880,14 +891,16 @@ def parse_all_files(files, test_stmt=None):
                 # TODO: Optimize the extraction procedure
                 parsed_file = File(stmts, hashid)
                 parsed_file_list.append(parsed_file)
-                cnt_succ += 1
+                # cnt_succ += 1
             except Exception as e:
                 print(e)
-                cnt_exception += 1
+                # cnt_exception += 1
+                # COUNTER_EXCEPT()
                 continue
-        print('succ: {}, except: {}'.format(cnt_succ, cnt_exception))
+        # print('succ: {}, except: {}'.format(cnt_succ, cnt_exception))
+        print('succ: {}, except: {}'.format(COUNTER.num - COUNTER_EXCEPT.num, COUNTER_EXCEPT.num))
 
-    print('Totally succ: {}, except: {}'.format(cnt_succ, cnt_exception))
+    print('Totally succ: {}, except: {}'.format(COUNTER.num - COUNTER_EXCEPT.num, COUNTER_EXCEPT.num))
     print(len(parsed_file_list))
 
     # dump parsed sql list obj
@@ -934,8 +947,8 @@ def test_timeout():
 if __name__ == "__main__":
     files = [f for f in glob.glob(os.path.join(INPUT_FOLDER, "*.sql"))]
     print(f"Total SQL files count: {len(files)}.")
-
     # test_stmt = test_badcase()
+
     # test_stmt = get_pk_def_case_on_create()
     # test_stmt = get_fk_def_case_on_create()
     # test_stmt = get_constraint_begin_on_create()
@@ -952,5 +965,5 @@ if __name__ == "__main__":
     # test_stmt = get_add_uniq_key_case_on_alter()
     # test_stmt = get_add_uniq_idx_case_on_alter()
 
-    # parse_all_files(files)
-    parse_all_files(files, None)
+    parse_all_files(files)
+    # parse_all_files(files, test_stmt)
