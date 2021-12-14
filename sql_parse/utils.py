@@ -1,3 +1,12 @@
+# -*- coding: utf-8 -*-
+# @author: Yang Liu
+# @email: v-yangliu4@microsoft.com
+
+
+import re
+from dataclasses import dataclass
+
+
 class RegexDict:
     """Define and retrieve regex by index"""
     __regex_dict = {
@@ -30,6 +39,32 @@ class RegexDict:
         return self.__getitem__(__key)
 
 
+@dataclass
+class Counter:
+    """Class for nums counting.
+    Return the number which have plus 1 after a function call.
+
+    Params
+    ------
+    - None
+
+    Returns
+    -------
+    - num: int
+    """
+    __num: int = 0
+
+    @property
+    def num(self):
+        return self.__num
+
+    def add(self):
+        self.__num += 1
+        return self.__num
+
+    __call__ = add
+
+
 def fmt_str(s):
     """Remove puncs like `, ', " for string which wrapped with them.
 
@@ -49,8 +84,24 @@ def rm_kw(s):
     return s.replace(" asc", "").replace(" desc", "").strip()
 
 
+def clean_stmt(stmt):
+    """Remove useless keyword in SQL, e.g. COMMENT"""
+    # remove COMMENT ...
+    pattern = "(\s+comment\s*[\s|=]?\s*['|\"\`].*['|\"\`])[,|\n|;]"
+    result = re.findall(pattern, stmt, re.IGNORECASE)
+    if len(result) == 1:
+        stmt = stmt.replace(result[0], "")
+    return stmt
+
+
 if __name__ == "__main__":
+    # test for RegexDict
     regex_dict = RegexDict()
     print(regex_dict["add_constraint_pk_alter_table"])
     print(regex_dict("add_fk_alter_table"))
     print(regex_dict.data)
+
+    # test for Counter
+    counter = Counter()
+    for i in range(100):
+        print(counter())
