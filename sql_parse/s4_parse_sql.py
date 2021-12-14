@@ -53,6 +53,7 @@ import sqlparse
 from utils import (
     rm_kw,
     fmt_str,
+    clean_stmt,
     Counter,
     RegexDict,
 )
@@ -73,6 +74,7 @@ from unit_test import (
     get_add_constraint_fk_case_on_alter,
     get_add_uniq_key_case_on_alter,
     get_add_uniq_idx_case_on_alter,
+    get_add_key_case_on_alter,
 )
 
 
@@ -677,9 +679,8 @@ class File:
             multicol_list = re.findall("\(.*?\)", stmt, re.IGNORECASE)
             stmt = re.sub("\(.*?\)", "[MULTI-COL]", stmt)
             clauses = stmt.split("alter table")[1].strip().split(',')
-
-            # TODO: potential memory leak here, need to fix.
-            with Timeout(seconds=3):
+            with Timeout(seconds=1):
+                # potential memory leak here, could be handled better.
                 if len(multicol_list) != 0:
                     temp_list = list()
                     i = 0
@@ -790,7 +791,7 @@ class File:
                         if len(result) == 1:
                             constraint_uniq_cols = result[0]
                         else:
-                            raise Exception("ADD CONSTRIANT UNIQUE error: references on alter table not found!")
+                            raise Exception("ADD CONSTRAINT UNIQUE error: match number not equal to 1!")
                         if self.is_ui_ref_valid(tab_name, constraint_uniq_cols):
                             print(f"| <constriant_unique_cols:\"{fmt_str(constraint_uniq_cols)}\"> |")
                         else:
@@ -804,13 +805,24 @@ class File:
                             ref_cols = result[1]
                             # asc_or_desc = result[2]  # unused for now
                         else:
-                            raise Exception("CREATE UNIQUE INDEX error: references on alter table not found!")
+                            raise Exception("CREATE UNIQUE INDEX error: match number not equal to 2 or 3!")
                         if self.is_ui_ref_valid(ref_tab, ref_cols):
                             print(f"| <unique_index_table:\"{fmt_str(ref_tab)}\"> | <unique_index_cols:\"{fmt_str(ref_cols)}\"> |")
                         else:
-                            raise Exception("ADD CONSTRIANT UNIQUE error: references on alter table not found!")
+                            raise Exception("CREATE UNIQUE INDEX error: references on alter table not found!")
                     else:
                         raise Exception(f"UNIQUE error: unknown add unique variant! => {clause}")
+                elif clause.startswith("add key"):
+                    pattern = "\((.*?)\)"
+                    result = re.findall(pattern, clause, re.IGNORECASE)
+                    if len(result) == 1:
+                        key_cols = result[0]
+                    else:
+                        raise Exception("ADD KEY error: match number not equal to 1!")
+                    if self.is_key_ref_valid(tab_name, key_cols):
+                        print(f"| <key_cols:\"{fmt_str(key_cols)}\"> |")
+                    else:
+                        raise Exception("ADD KEY error: references on alter table not found!")
                 else:
                     print(f"Unhandled operation on alter table: {clause}")
         except Exception as e:
@@ -830,7 +842,7 @@ class File:
         - None
         """
         try:
-            with Timeout(seconds=10):
+            with Timeout(seconds=5):
                 stmt = sqlparse.format(stmt, strip_comments=True)
         except Exception as e:
             print(e)
@@ -838,6 +850,8 @@ class File:
         else:
             stmt = ' '.join(stmt.split()).lower()
 
+        # preprocess statement
+        stmt = clean_stmt(stmt)
         # skip empty string
         if stmt == "":
             return
@@ -964,6 +978,7 @@ if __name__ == "__main__":
     # test_stmt = get_add_constraint_fk_case_on_alter()
     # test_stmt = get_add_uniq_key_case_on_alter()
     # test_stmt = get_add_uniq_idx_case_on_alter()
+    # test_stmt = get_add_key_case_on_alter()
 
     parse_all_files(files)
     # parse_all_files(files, test_stmt)

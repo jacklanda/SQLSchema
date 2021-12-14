@@ -1,16 +1,26 @@
+# -*- coding: utf-8 -*-
+# @author: Yang Liu
+# @email: v-yangliu4@microsoft.com
+
+
 import unittest
 
 
 def test_badcase():
-    return r"""CREATE TABLE "user" (
-        "user_id" serial NOT NULL,
-        "last_name" varchar(20),
-        "user_handle" varchar(20) UNIQUE,
-        "user_phone" varchar(20),
-        "user_hash" varchar(250) NOT NULL,
-        "is_dispatcher" boolean default false,
-        CONSTRAINT user_pk PRIMARY KEY ("user_id")
-    );
+    return r"""
+    CREATE TABLE `szamla` (
+      `id` int(11) NOT NULL,
+      `bolt` varchar(40) COLLATE utf8_hungarian_ci NOT NULL,
+      `vasarloID` int(11) NOT NULL,
+      `reszletID` int(11) NOT NULL,
+      `datum` date NOT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_hungarian_ci;
+    
+    ALTER TABLE `szamla`
+      ADD PRIMARY KEY (`id`),
+      ADD KEY `vasarloID` (`vasarloID`),
+      ADD KEY `reszletID` (`reszletID`),
+      ADD KEY `bolt` (`bolt`);
     """
 
 
@@ -226,7 +236,7 @@ def get_constraint_begin_on_create():
       `job_data` blob,
       PRIMARY KEY (`sched_name`,`trigger_name`,`trigger_group`),
       KEY `sched_name` (`sched_name`,`job_name`,`job_group`),
-      CONSTRAINT `QRTZ_TRIGGERS_ibfk_1` FOREIGN KEY (`sched_name`, `job_name`, `job_group`) REFERENCES `QRTZ_JOB_DETAILS` (`sched_name`, `job_name`)
+      CONSTRAINT `QRTZ_TRIGGERS_ibfk_1` FOREIGN KEY (`sched_name`, `job_name`, `job_group`) REFERENCES `QRTZ_JOB_DETAILS` (`sched_name`, `job_name`, `job_group`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
     CREATE TABLE `QRTZ_BLOB_TRIGGERS` (
       `sched_name` varchar(120) NOT NULL,
@@ -590,6 +600,24 @@ def get_create_uniq_case_on_create():
     );
     CREATE UNIQUE INDEX UNIQ_46C8B806EA000B103D9AB4A64DEF17BCE4289BF4 
         ON acl_entries (class_id, object_identity_id, field_name, ace_order);"""
+
+
+def get_add_key_case_on_alter():
+    return r"""-- case 0
+    CREATE TABLE `szamla` (
+      `id` int(11) NOT NULL,
+      `bolt` varchar(40) COLLATE utf8_hungarian_ci NOT NULL,
+      `vasarloID` int(11) NOT NULL,
+      `reszletID` int(11) NOT NULL,
+      `datum` date NOT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_hungarian_ci;
+    
+    ALTER TABLE `szamla`
+      ADD PRIMARY KEY (`id`),
+      ADD KEY `vasarloID` (`vasarloID`),
+      ADD KEY `reszletID` (`reszletID`),
+      ADD KEY `bolt` (`bolt`);
+    """
 
 
 class MyTestCase(unittest.TestCase):
