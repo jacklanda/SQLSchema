@@ -441,9 +441,14 @@ class File:
                             fk_ref_cols = result[2]
                         else:
                             raise Exception("CONSTRAINT FOREIGN KEY def error: match number must be 3!")
-                        if self.is_fk_ref_valid(tab_obj, fk_cols) and \
-                           self.is_fk_ref_valid(fk_ref_tab, fk_ref_cols):
-                            print(f"| <foreign_key_cols:\"{fmt_str(fk_cols)}\"> | <fk_ref_tab:\"{fmt_str(fk_ref_tab)}\"> | <fk_ref_cols:\"{fmt_str(fk_ref_cols)}\"> |")
+                        if self.is_fk_ref_valid(tab_obj, fk_cols):
+                            fk_ref_tab = fmt_str(fk_ref_tab)
+                            if fk_ref_tab == tab_name and self.is_fk_ref_valid(tab_obj, fk_ref_cols):
+                                print(f"| <foreign_key_cols:\"{fmt_str(fk_cols)}\"> | <fk_ref_tab:\"{fmt_str(fk_ref_tab)}\"> | <fk_ref_cols:\"{fmt_str(fk_ref_cols)}\"> |")
+                            elif fk_ref_tab != tab_name and self.is_fk_ref_valid(fk_ref_tab, fk_ref_cols):
+                                print(f"| <foreign_key_cols:\"{fmt_str(fk_cols)}\"> | <fk_ref_tab:\"{fmt_str(fk_ref_tab)}\"> | <fk_ref_cols:\"{fmt_str(fk_ref_cols)}\"> |")
+                            else:
+                                raise Exception("CONSTRAINT FOREIGN KEY def error: references on create table not found!")
                         else:
                             raise Exception("CONSTRAINT FOREIGN KEY def error: references on create table not found!")
                     # handle: CONSTRAINT [constraint_name] UNIQUE ([uni_cols])
@@ -535,7 +540,7 @@ class File:
                         raise Exception("UNIQUE KEY ref error: references on create table not found!")
                 # handle ordinary key
                 elif len(re.findall("^key\s", clause)) == 1:
-                    # KEY [key_name] ([key_col_name_0], ...)  # key_name is unused for now.
+                    # KEY [key_name] ([key_col_0], ...)  # key_name is unused for now.
                     pattern = "\((.*)\)"
                     result = re.findall(pattern, clause, re.IGNORECASE)
                     if len(result) == 1:
@@ -547,7 +552,7 @@ class File:
                     if "references" in clause:
                         pass
                     if self.is_key_ref_valid(tab_obj, key_cols):
-                        print(f"| <key_col_name:\"{fmt_str(key_cols)}\"> |")
+                        print(f"| <key_cols:\"{fmt_str(key_cols)}\"> |")
                     else:
                         raise Exception("KEY ref error: references on create table not found!")
                 # handle unique index
@@ -812,8 +817,8 @@ class File:
                             raise Exception("CREATE UNIQUE INDEX error: references on alter table not found!")
                     else:
                         raise Exception(f"UNIQUE error: unknown add unique variant! => {clause}")
-                elif clause.startswith("add key"):
-                    pattern = "\((.*?)\)"
+                elif "add key" in clause:
+                    pattern = "\((.*?)\(?\d*\)"
                     result = re.findall(pattern, clause, re.IGNORECASE)
                     if len(result) == 1:
                         key_cols = result[0]
