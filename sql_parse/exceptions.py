@@ -9,13 +9,19 @@ sql_parse.exceptions
 This module contains the set of sql_parse's exceptions.
 """
 
+# Self-defined Errors / Exceptions
+
 
 class SQLParseError(Exception):
     """An ambiguous exception that occurred while parsing SQL statements."""
 
 
+class ParseStageFailedError(SQLParseError):
+    """A parse stage failed error occurred."""
+
+
 class RegexMatchError(SQLParseError):
-    """An exception that occurred while matching failed with regex."""
+    """A regex match failed error occurred."""
 
 
 class DefColumnError(SQLParseError):
@@ -28,6 +34,10 @@ class RefUnfoundError(SQLParseError):
 
 class UnknownVariantError(SQLParseError):
     """An unknown or unhandled variant error occurred."""
+
+
+# Self-defined Warnings
+# TODO
 
 
 if __name__ == "__main__":
