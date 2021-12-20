@@ -18,11 +18,6 @@ from inspect import getframeinfo, stack
 class SQLParseError(Exception):
     """An ambiguous exception that occurred while parsing SQL statements."""
 
-    def __init__(self, msg="SQL parsing error!"):
-        last_frame_info = getframeinfo(stack()[1][0])
-        self.msg = f"{last_frame_info.filename}:{last_frame_info.lineno}, {msg}"
-        super().__init__(self.msg)
-
 
 class ParseStageFailedError(SQLParseError):
     """A parse stage failed error occurred."""
@@ -74,4 +69,44 @@ class UnknownVariantError(SQLParseError):
 
 
 if __name__ == "__main__":
-    pass
+    def test_sql_parse_error(): raise SQLParseError()
+
+    def test_parse_stage_failed_error(): raise ParseStageFailedError()
+
+    def test_regex_match_error(): raise RegexMatchError()
+
+    def test_def_column_error(): raise DefColumnError()
+
+    def test_ref_unfound_error(): raise RefUnfoundError()
+
+    def test_unknown_variant_error(): raise UnknownVariantError()
+
+    try:
+        test_sql_parse_error()
+    except Exception as e:
+        print(e)
+
+    try:
+        test_parse_stage_failed_error()
+    except Exception as e:
+        print(e)
+
+    try:
+        test_regex_match_error()
+    except Exception as e:
+        print(e)
+
+    try:
+        test_def_column_error()
+    except Exception as e:
+        print(e)
+
+    try:
+        test_ref_unfound_error()
+    except Exception as e:
+        print(e)
+
+    try:
+        test_unknown_variant_error()
+    except Exception as e:
+        print(e)
