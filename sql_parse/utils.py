@@ -64,6 +64,10 @@ class Counter:
 
     __call__ = add
 
+    def minus(self):
+        self.__num -= 1
+        return self.__num
+
 
 def fmt_str(s):
     """Remove puncs like `, ', " for string which wrapped with them.
@@ -89,8 +93,8 @@ def clean_stmt(stmt):
     # remove COMMENT ...
     pattern = "(\s+comment\s*[\s|=]?\s*['|\"\`].*['|\"\`])[,|\n|;]"
     result = re.findall(pattern, stmt, re.IGNORECASE)
-    if len(result) == 1:
-        stmt = stmt.replace(result[0], "")
+    for each in result:
+        stmt = stmt.replace(each, "")
     return stmt
 
 
@@ -105,3 +109,41 @@ if __name__ == "__main__":
     counter = Counter()
     for i in range(100):
         print(counter())
+
+    # test for fmt_str
+    s = """CREATE TABLE `ast_AppMenus_M` (
+    `menuId` VARCHAR(64) NOT NULL, 
+    `menuTreeId` VARCHAR(256) NOT NULL, 
+    `menuIcon` VARCHAR(256) NULL DEFAULT NULL, 
+    `menuAction` VARCHAR(256) NULL DEFAULT NULL, 
+    `menuCommands` VARCHAR(64) NULL DEFAULT NULL, 
+    `menuDisplay` TINYINT(1) NOT NULL, 
+    `menuHead` TINYINT(1) NOT NULL, 
+    `menuLabel` VARCHAR(256) NULL DEFAULT NULL, 
+    PRIMARY KEY (`menuId`));"""
+
+    print(fmt_str(s.lower()))
+
+    # test for rm_kw
+    s = """CREATE TABLE IF NOT EXISTS `RONDIER`.`Pays` (
+    `idPays` INT NOT NULL AUTO_INCREMENT,
+    `Pays` VARCHAR(45) NOT NULL,
+    PRIMARY KEY (`idPays`),
+    UNIQUE INDEX `idPays_UNIQUE` (`idPays` ASC))
+    UNIQUE INDEX `Pays_UNIQUE` (`Pays` DESC))
+    ENGINE = InnoDB;"""
+
+    print(rm_kw(s.lower()))
+
+    # test for clean_stmt
+    s = """create table sys_dept (
+    dept_id           bigint(20)      not null auto_increment    comment '部门id',
+    parent_id         bigint(20)      default 0                  comment '父部门id',
+    ancestors         varchar(50)     default ''                 comment '祖级列表',
+    dept_name         varchar(30)     default ''                 comment '部门名称',
+    order_num         int(4)          default 0                  comment '显示顺序',
+    leader            varchar(20)     default null               comment '负责人',
+    primary key (dept_id)
+    ) engine=innodb auto_increment=200 comment = '部门表';"""
+
+    print(clean_stmt(s.lower()))
