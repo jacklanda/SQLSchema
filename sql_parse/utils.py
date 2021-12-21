@@ -10,13 +10,16 @@ from dataclasses import dataclass
 class RegexDict:
     """Define and retrieve regex by index"""
     __regex_dict = {
+        "split_clause_by_comma": r",(?![^\(]*[\)])",
         "constraint_pk_create_table": "\((.*?)\)",
         "constraint_fk_create_table": "foreign\s*key\s*\(?(.*?)\)?\s*references\s*([`|'|\"]?.*?[`|'|\"]?)\s*\((.*?)\)",
         "constraint_unique_create_table": "\((.*?)\)",
         "startwith_fk_create_table": "foreign\s*key\s*\(?(.*?)\)?\s*references\s*([`|'|\"]?.*?[`|'|\"]?)\s*\((.*?)\)",
         "startwith_uk_create_table": "unique\s*key\s*.*?\((.*?)\)",
-        "candidate_key_create_table": "\((.*?)\)",
+        "candidate_key_create_table": "\((.*)\)",
         "startwith_ui_create_table": "unique\s+index\s+([`|'|\"]?.*?[`|'|\"]?)\s*\((.*?)\)",
+        "startwith_unique_create_table": "\((.*)\)",
+        "startwith_index_create_table": "index\s+.*\((.*?)\)",
         "add_constraint_pk_alter_table": "primary\s*key\s*\((.*?)\)",
         "add_pk_alter_table": "\((.*)\)",
         "add_constraint_fk_alter_table": "foreign\s*key\s*\(?(.*?)\)?\s*references\s*([`|'|\"]?.*?[`|'|\"]?)\s*\((.*?)\)",
@@ -24,6 +27,8 @@ class RegexDict:
         "add_unique_key_alter_table": "(.*?)\s*\((.*?)\)",
         "add_unique_index_alter_table": "\((.*?)\)",
         "add_constraint_unique_alter_table": "add\s*constraint\s*.*?\((.*?)\)",
+        "create_unique_index_alter_table": "on\s+(.*?)\s*\((.*?)\s*(ASC)?(DESC)?\)",
+        "add_key_alter_table": "\((.*?)\(?\d*\)",
     }
 
     @property
