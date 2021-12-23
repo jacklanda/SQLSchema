@@ -8,7 +8,168 @@ from dataclasses import dataclass
 
 
 class RegexDict:
-    """Define and retrieve regex by index"""
+    """Define and retrieve regex by index
+
+    Examples
+    --------
+    - split_clause_by_comma: split CREATE TABLE block into single clauses according to.
+
+    - constraint_pk_create_table: extract CONSTRAINT PRIMARY KEY in clause.
+    ```SQL
+    CREATE TABLE "xxPerson_o"
+    (
+        "FirstName"  VarChar(255)  NOT NULL,
+        "PersonID"   Int           NOT NULL,
+        "LastName"   VarChar(255)  NOT NULL,
+        "MiddleName" VarChar(255)      NULL,
+        "Gender"     Char(1)       NOT NULL,
+        CONSTRAINT "PK_xxPerson_o" PRIMARY KEY ("PersonID")
+    );
+    ```
+    => extract PK's cols in parenthesis
+
+    - constraint_fk_create_table: extract CONSTRAINT FOREIGN KEY in clause
+    ```SQL
+    CREATE TABLE public.video
+    (
+        id SERIAL PRIMARY KEY NOT NULL,
+        user_id INT NOT NULL,
+        CONSTRAINT video_user_id_fk FOREIGN KEY (user_id) REFERENCES "user" (id)
+    );
+    ```
+    => extract FK's cols, referred table and referred cols.
+
+    - constraint_unique_create_table: extract CONSTRAINT UNIQUE in clause
+    ```SQL
+    create table studentCourse (
+        ID                  integer         primary key auto_increment,
+        studentID           integer             not null,
+        courseID            integer             not null,
+        Foreign Key (studentID)     references Student(ID),
+        Foreign Key (courseID)      references Course(ID),
+        CONSTRAINT cou_stu unique (courseID, studentID)
+    );  
+    ```
+    => extract FK's cols, referred table and referred cols.
+
+    - startwith_fk_create_table: extract FK in clause which startswith FK.
+    ```SQL
+    CREATE TABLE raw_ip_addrs (
+        tool_run_id                 UUID            NOT NULL,
+        ip_addr                     INET            NOT NULL,
+        is_responding               BOOLEAN         NULL,
+        PRIMARY KEY (tool_run_id, ip_addr),
+        FOREIGN KEY (tool_run_id) REFERENCES tool_runs(id)
+    );
+    ```
+    => extract FK's cols, referred table and referred cols.
+
+    - startwith_uk_create_table: extract UNIQUE KEY in clause which startswith UK.
+    ```SQL
+    CREATE TABLE `lkupcounty` (
+        `countyId` int(11) NOT NULL AUTO_INCREMENT,
+        `stateId` int(11) NOT NULL,
+        `countyName` varchar(100) NOT NULL,
+        `initialtimestamp` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY `unique_county` (`stateId`,`countyName`),
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+    ```
+    => extract UK's cols.
+
+    - candidate_key_create_table: extract KEY's cols.
+    ```SQL
+    CREATE TABLE `guild_bank_eventlog` (
+        `guildid` int(11) unsigned NOT NULL default '0' COMMENT 'Guild Identificator',
+        KEY `guildid_key` (`guildid`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+    ```
+    => extract KEY's cols.
+
+    - startwith_ui_create_table: extract UNIQUE INDEX's cols.
+    ```SQL
+    CREATE TABLE IF NOT EXISTS `RONDIER`.`Pays` (
+        `idPays` INT NOT NULL AUTO_INCREMENT,
+        UNIQUE INDEX `idPays_UNIQUE` (`idPays` ASC)
+    )
+    ENGINE = InnoDB;
+    ```
+    => extract UNIQUE INDEX's cols in parenthesis.
+
+    - startwith_unique_create_table: extract UNIQUE (KEY)'s cols.
+    ```SQL
+    CREATE TABLE acteurs
+    (
+        id     SERIAL UNIQUE,
+        nom    VARCHAR(128) NOT NULL,
+        prenom VARCHAR(128) NOT NULL,
+        PRIMARY KEY (id),
+        UNIQUE (nom, prenom)
+    );
+    ```
+
+    - startwith_index_create_table: extract INDEX's cols `id`, `user_id`, `delete_time`.
+    ```SQL
+    CREATE TABLE `groups`  (
+        `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+        `user_id` int(10) NOT NULL COMMENT '创建者（管理员）id',
+        `delete_time` datetime(3) NULL DEFAULT NULL,
+        INDEX `idx_id_user`(`id`, `user_id`, `delete_time`) USING BTREE COMMENT 'id与user_id的联合索引'
+
+    ) ENGINE = InnoDB AUTO_INCREMENT = 23 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+    ```
+
+    - add_constraint_pk_alter_table: extract PK's cols "[SectionCharacteristicDescriptorId]".
+    ```SQL
+    ALTER TABLE [edfi].[SectionCharacteristic] 
+        ADD CONSTRAINT [SectionCharacteristic_PK] PRIMARY KEY CLUSTERED  ([SectionCharacteristicDescriptorId]);
+    ```
+
+    - add_pk_alter_table: extract PK's cols "id, entity".
+    ```SQL
+    ALTER TABLE llx_rights_def ADD PRIMARY KEY pk_rights_def (id, entity);
+    ```
+
+    - add_constraint_fk_alter_table: extract FK's col "STRING_LIST_ID_EID", referred table "APP"."SKEWED_STRING_LIST" and referred col "STRING_LIST_ID".
+    ```SQL
+    ALTER TABLE "APP"."SKEWED_VALUES" 
+        ADD CONSTRAINT "SKEWED_VALUES_FK2" FOREIGN KEY ("STRING_LIST_ID_EID") 
+        REFERENCES "APP"."SKEWED_STRING_LIST" ("STRING_LIST_ID") ON DELETE NO ACTION ON UPDATE NO ACTION;
+    ```
+
+    - add_fk_alter_table: extract FK's col "Parent", referred table "StockMaster" and referred col "StockID".
+    ```SQL
+    ALTER TABLE BOM ADD FOREIGN KEY (Parent) REFERENCES StockMaster (StockID);
+    ```
+
+    - add_unique_key_alter_table: extract UNIQUE KEY's col "email".
+    ```SQL
+    ALTER TABLE `users`
+        ADD PRIMARY KEY (`id`),
+        ADD UNIQUE KEY `users_email_unique` (`email`);
+    ```
+
+    - add_unique_index_alter_table: extract UNIQUE INDEX's col "patient_id".
+    ```SQL
+    ALTER TABLE `patient`
+        ADD UNIQUE INDEX `patient_id_UNIQUE` (`patient_id` ASC);
+    ```
+
+    - add_constraint_unique_alter_table: extract CONSTRAINT UNIQUE (KEY)'s col "OBJ_ID".
+    ```SQL
+    ALTER TABLE KRCR_STYLE_T ADD CONSTRAINT UNIQUE INDEX KRCR_STYLE_TC0 (OBJ_ID);
+    ```
+
+    - create_unique_index_alter_table: extract CREATE UNIQUE INDEX's col "gid".
+    ```SQL
+    CREATE UNIQUE INDEX area_idx_gid ON area (gid);
+    ```
+
+    - add_key_alter_table: extract ADD KEY's col "comment_id".
+    ```SQL
+    ALTER TABLE `cf_commentmeta`
+        ADD KEY `comment_id` (`comment_id`),
+    ```
+    """
     __regex_dict = {
         "split_clause_by_comma": r",(?![^\(]*[\)])",
         "constraint_pk_create_table": "\((.*?)\)",
