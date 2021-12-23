@@ -106,7 +106,6 @@ class RegexDict:
         `user_id` int(10) NOT NULL COMMENT '创建者（管理员）id',
         `delete_time` datetime(3) NULL DEFAULT NULL,
         INDEX `idx_id_user`(`id`, `user_id`, `delete_time`) USING BTREE COMMENT 'id与user_id的联合索引'
-
     ) ENGINE = InnoDB AUTO_INCREMENT = 23 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
     ```
 
@@ -159,7 +158,7 @@ class RegexDict:
     - add_key_alter_table: extract ADD KEY's cols.
     ```SQL
     ALTER TABLE `cf_commentmeta`
-        ADD KEY `comment_id` (`comment_id`),
+        ADD KEY `comment_id` (`comment_id`);
     ```
     """
     __regex_dict = {
