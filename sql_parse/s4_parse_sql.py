@@ -37,7 +37,7 @@ Procedure design:
 # [Done] handle multi-col keys                                #
 # [Done] parse for repo-database level                        #
 # [Done] handle clauses without semicolon delimiter           #
-# [Done] handle create (unique) index                           #
+# [Done] handle create (unique) index                         #
 # TODO: handle queries with JOINs                             #
 # TODO: check on alter table                                  #
 #       https://www.w3schools.com/sql/sql_check.asp           #
