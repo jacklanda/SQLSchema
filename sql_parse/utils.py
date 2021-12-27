@@ -160,6 +160,11 @@ class RegexDict:
     ALTER TABLE `cf_commentmeta`
         ADD KEY `comment_id` (`comment_id`);
     ```
+
+    - create_index_or_unique_index.
+    ```SQL
+    CREATE INDEX IDX_AC_TID ON IDN_OAUTH2_AUTHORIZATION_CODE(TOKEN_ID);
+    ```
     """
     __regex_dict = {
         "split_clause_by_comma": r",(?![^\(]*[\)])",
@@ -181,6 +186,7 @@ class RegexDict:
         "add_constraint_unique_alter_table": "add\s*constraint\s*.*?\((.*?)\)",
         "create_unique_index_alter_table": "on\s+(.*?)\s*\((.*?)\s*(ASC)?(DESC)?\)",
         "add_key_alter_table": "\((.*?)\(?\d*\)",
+        "create_index_or_unique_index": "\s+on\s+(.*?)\s*(using\sbtree\s*)?\(\(?(.*?)\)?\)",
     }
 
     @property
