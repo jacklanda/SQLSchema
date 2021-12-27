@@ -254,7 +254,7 @@ def rm_kw(s):
 def clean_stmt(stmt):
     """Remove useless keyword in SQL, e.g. COMMENT"""
     # remove COMMENT ...
-    pattern = "(\s+comment\s*[\s|=]?\s*['|\"\`].*['|\"\`])[,|\n|;]"
+    pattern = "(\s+comment\s*[\s|=]?\s*['|\"\`].*?['|\"\`])[,|\n|;]"
     result = re.findall(pattern, stmt, re.IGNORECASE)
     for each in result:
         stmt = stmt.replace(each, "")
