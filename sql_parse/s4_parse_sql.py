@@ -31,7 +31,8 @@ Procedure design:
 """
 
 ###############################################################
-# [Done] parsing coverage on CREATE and ALTER TABLE: 88.53%   #
+# [Done] parsing coverage on CREATE TABLE,                    #
+#        ALTER TABLE and CREATE INDEX statements: 88.53%      #
 # [Done] handle PK                                            #
 # [Done] handle FK                                            #
 # [Done] handle multi-col keys                                #
@@ -444,17 +445,17 @@ class File:
             if tab in self.repo_name2tab:
                 tab_obj = self.repo_name2tab[tab]
             else:
-                print(f"Unknown ref table `{tab}`!", end=" | ")
+                print(f"Unknown ref table `{tab}`")
                 return False
         else:
-            raise TypeError("References check error! Param `tab`'s type must be either Table or str!")
+            raise TypeError("References check error! Param `tab`'s type must be either Table or str")
         # check ref col is valid or not
         if cols is not None:
             cols = fmt_str(cols).split(',')
             cols = [rm_kw(c) for c in cols]
             for col in cols:
                 if col not in tab_obj.name2col:
-                    print(f"Unknown ref col `{col}` in ref table `{tab_obj.tab_name}`!", end=" | ")
+                    print(f"Unknown ref col `{col}` in ref table `{tab_obj.tab_name}`")
                     return False
         return True
 
@@ -481,6 +482,8 @@ class File:
             clauses = stmt.split("create table")[1].split('(', 1)[1].strip()
             # remove the last found index of )
             clauses = "".join(clauses[i] for i in range(len(clauses)) if i != clauses.rfind(')'))
+            # remove type size with parentheses
+            clauses = re.sub("\(\d+\)", "", clauses)
             # split by comma, use regex to ignore commas in matching parentheses
             # this regex pattern could ensure multi columns kept.
             clauses = [c.strip() for c in re.split(REGEX_DICT("split_clause_by_comma"), clauses) if not c.isspace()]
