@@ -112,6 +112,9 @@ COUNTER, COUNTER_EXCEPT = Counter(), Counter()
 @unique
 class ParseStage(Enum):
     """Enum class for definitions on parsing stages.
+
+    Stage
+    -----
     - create: handle CREATE TABLE statements.
     - alter: handle ALTER TABLE statements.
     - fk: handle FKs on referred missing cases in create and alter.
@@ -1114,23 +1117,24 @@ def parse_all_files(files, test_stmt=None):
 def parse_repo_files(repo_obj):
     """Parse all SQL files in the same repository.
     - first stage: parse all CREATE TABLE statements in files,
-                     and record all unresolved referred tuple in repo's memo.
-    - second stage: parse repo again to handle ALTER TABLE statements
-                      and all FKs for references.
-    - third stage: parse repo to handle queries with JOINs statements.
+                   and record all unresolved referred tuple in repo's memo.
+    - second stage: parse repo again to handle ALTER TABLE and CREATE (UNIQUE) INDEX statements.
+    - third stage: parse FKs in memo.
+    - fourth stage: parse repo for the third time to handle queries with JOINs statements.
 
     Benefit
     -------
-    => Solve the reversed-orders cases(alter first and create later)
-    => As much as possible solve the FKs' references missing cases.
+    - Solve the reversed-orders cases(alter first and create later)
+    - As much as possible solve the FKs' references missing cases
+    - Aggregate and parse SQL files in the same source repository, easy to manage
 
     Params
     ------
-    repo_obj: Repository
+    - repo_obj: Repository
 
     Returns
     -------
-    - parsed_repo: Repository
+    - a Repository object
     """
     fpath_list = repo_obj.repo_fpath_list
     file_obj_queue = deque()
