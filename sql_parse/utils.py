@@ -14,6 +14,8 @@ class RegexDict:
     --------
     - split_clause_by_comma: split CREATE TABLE block into single clauses according to.
 
+    - get_create_table_name: extract table name on CREATE TABLE statement.
+
     - constraint_pk_create_table: extract CONSTRAINT PRIMARY KEY's cols in clause.
     ```SQL
     CREATE TABLE "xxPerson_o"
@@ -168,6 +170,7 @@ class RegexDict:
     """
     __regex_dict = {
         "split_clause_by_comma": r",(?![^\(]*[\)])",
+        "get_create_table_name": "create\stable\s(.*?)\s",
         "constraint_pk_create_table": "\((.*?)\)",
         "constraint_fk_create_table": "foreign\s*key\s*\(?(.*?)\)?\s*references\s*([`|'|\"]?.*?[`|'|\"]?)\s*\((.*?)\)",
         "constraint_unique_create_table": "\((.*?)\)",

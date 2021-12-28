@@ -475,8 +475,8 @@ class File:
         """
         try:
             # parse table name, create table obj
-            tab_name = fmt_str(stmt.split("create table")[1].split('(')[0]) \
-                .replace("if not exists", "").strip()
+            # tab_name = fmt_str(stmt.split("create table")[1].split('(')[0]).replace("if not exists", "").strip()  # deprecated
+            tab_name = re.match(REGEX_DICT("get_create_table_name"), stmt, re.IGNORECASE).group(1)
             tab_obj = Table(tab_name, self.hashid)
             # get all clauses on create table
             clauses = stmt.split("create table")[1].split('(', 1)[1].strip()
@@ -513,9 +513,9 @@ class File:
                         pattern = REGEX_DICT("constraint_fk_create_table")
                         result = re.findall(pattern, clause, re.IGNORECASE)[0]
                         if len(result) == 3:
-                            fk_cols = result[0]
-                            fk_ref_tab = result[1]
-                            fk_ref_cols = result[2]
+                            fk_cols = fmt_str(result[0])
+                            fk_ref_tab = fmt_str(result[1])
+                            fk_ref_cols = fmt_str(result[2])
                         else:
                             raise Exception("CONSTRAINT FOREIGN KEY def error: match number must be 3!")
                         if self.is_fk_ref_valid(tab_obj, fk_cols):
@@ -601,9 +601,9 @@ class File:
                     # fk must have references, so its matching length is 3.
                     # FOREIGN KEY([fk_name]) REFERENCES [ref_tab_name]([ref_col_name])
                     if len(result) == 3:
-                        fk_cols = result[0]
-                        fk_ref_tab = result[1]
-                        fk_ref_cols = result[2]
+                        fk_cols = fmt_str(result[0])
+                        fk_ref_tab = fmt_str(result[1])
+                        fk_ref_cols = fmt_str(result[2])
                     else:
                         raise Exception("FOREIGN KEY def error: match number must be 3!")
                     if self.is_fk_ref_valid(tab_obj, fk_cols) and \
@@ -761,7 +761,7 @@ class File:
         try:
             tab_name = fmt_str(stmt.split('alter table')[1].replace(" only ", ' ').split()[0])
             if tab_name not in self.repo_name2tab:
-                print(f"Did not find this table: {tab_name}")
+                print(f"Did not find this table on alter table: {tab_name}")
                 return None
             tab_obj = self.repo_name2tab[tab_name]
 
@@ -849,6 +849,9 @@ class File:
                         result = re.findall(pattern, clause, re.IGNORECASE)[0]
                         if len(result) == 3:
                             fk_cols, fk_ref_tab, fk_ref_cols = result
+                            fk_cols = fmt_str(fk_cols)
+                            fk_ref_tab = fmt_str(fk_ref_tab)
+                            fk_ref_cols = fmt_str(fk_ref_cols)
                         else:
                             raise Exception("ADD FOREIGN KEY error: match number not equal to 3!")
                     else:
@@ -1184,9 +1187,9 @@ def parse_repo_files(repo_obj):
                                 # remove handled items in repo_memo
                                 repo_memo[file_obj.hashid].remove(item)
                                 COUNTER_EXCEPT.minus()
-                                print("Found references for FKs in memo")
+                                print(f"Found FK {tab_obj.hashid}:{tab_obj.tab_name} in {ref_tab_obj.hashid}:{ref_tab_obj.tab_name} in memo")
                             else:
-                                print("Not found references for FKs in memo")
+                                print(f"Not found FK {tab_name}:{fk_col_name}:{ref_tab_name}:{ref_col_name} in memo")
             elif stage == ParseStage.query:
                 # TODO: handle queries with JOINs
                 pass
