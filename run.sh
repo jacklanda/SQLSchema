@@ -26,6 +26,11 @@ sql_parse(){
     nohup python sql_parse/repo_parse_sql.py > ${sql_parse_log_path} 2>&1 &
 }
 
+sql_parse_debug(){
+    echo "sql parse debug"
+    python sql_parse/repo_parse_sql.py
+}
+
 unit_test(){
     echo "input args: $fn_slt"
     echo "local time: ${localtime}"
@@ -42,6 +47,9 @@ main(){
             ;;
         "-p" | "--parse") 
             sql_parse
+            ;;
+        "-d" | "--debug")
+            sql_parse_debug
             ;;
         *) echo "invalid arg: ${fn_slt}"
     esac
