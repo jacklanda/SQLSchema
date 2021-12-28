@@ -172,8 +172,8 @@ class RegexDict:
     """
     __regex_dict = {
         "split_clause_by_comma": r",(?![^\(]*[\)])",
-        "get_create_table_name": "create\stable\s(.*?)\s",
-        "get_alter_table_name": "alter\stable\s(.*?)\s",
+        "get_create_table_name": "create\stable\s(if\snot\sexists\s)?(.*?)[\s|\(]",
+        "get_alter_table_name": "alter\stable\s(only\s)?(.*?)\s",
         "constraint_pk_create_table": "\((.*?)\)",
         "constraint_fk_create_table": "foreign\s*key\s*\(?(.*?)\)?\s*references\s*([`|'|\"]?.*?[`|'|\"]?)\s*\((.*?)\)",
         "constraint_unique_create_table": "\((.*?)\)",

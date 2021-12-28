@@ -480,7 +480,7 @@ class File:
         try:
             # parse table name, create table obj
             # tab_name = fmt_str(stmt.split("create table")[1].split('(')[0]).replace("if not exists", "").strip()  # deprecated
-            tab_name = fmt_str(re.match(REGEX_DICT("get_create_table_name"), stmt, re.IGNORECASE).group(1))
+            tab_name = fmt_str(re.match(REGEX_DICT("get_create_table_name"), stmt, re.IGNORECASE).group(2))
             tab_obj = Table(tab_name, self.hashid)
             # get all clauses on create table
             clauses = stmt.split("create table")[1].split('(', 1)[1].strip()
@@ -765,7 +765,7 @@ class File:
         try:
             # "alter\stable\s(.*?)\s"
             # tab_name = fmt_str(stmt.split('alter table')[1].replace(" only ", ' ').split()[0])
-            tab_name = fmt_str(re.match(REGEX_DICT("get_alter_table_name"), stmt, re.IGNORECASE).group(1))
+            tab_name = fmt_str(re.match(REGEX_DICT("get_alter_table_name"), stmt, re.IGNORECASE).group(2))
             if tab_name not in self.repo_name2tab:
                 print(f"Did not find this table on alter table: {tab_name}")
                 return None
@@ -979,7 +979,7 @@ class File:
                 # idx_type = result[1]  # unused for now
                 idx_cols = result[2]
             else:
-                raise Exception("CREATE INDEX def error: match number must be 3!")
+                raise Exception("CREATE INDEX error: match number must be 3!")
             if self.is_ui_ref_valid(idx_tab_name, idx_cols):
                 # print(f"| <index_table:\"{fmt_str(idx_tab_name)}\"> | <index_cols:\"{fmt_str(idx_cols)}\"> |")
                 tab_obj = self.repo_name2tab[fmt_str(idx_tab_name)]
@@ -987,7 +987,7 @@ class File:
                     if "create unique index" in stmt else File.construct_key_obj("Index", idx_cols)
                 tab_obj.key_list.append(idx_obj)
             else:
-                raise Exception("CREATE INDEX def error: references on CREATE INDEX not found!")
+                raise Exception("CREATE INDEX error: references on CREATE INDEX not found!")
         except Exception as e:
             print(e)
             COUNTER_EXCEPT()
@@ -1185,9 +1185,9 @@ def parse_repo_files(repo_obj):
                         for item in file_obj.memo:
                             tab_name, fk_col_name, ref_tab_name, ref_col_name = item
                             if tab_name in repo_obj.name2tab \
-                                    and ref_tab_name in repo_obj.name2tab \
-                                    and file_obj.is_fk_ref_valid(tab_name, fk_col_name) \
-                                    and file_obj.is_fk_ref_valid(ref_tab_name, ref_col_name):
+                                    and ref_tab_name in repo_obj.name2tab:
+                                # and file_obj.is_fk_ref_valid(tab_name, fk_col_name) \
+                                # and file_obj.is_fk_ref_valid(ref_tab_name, ref_col_name):
                                 tab_obj = repo_obj.name2tab[tab_name]
                                 ref_tab_obj = repo_obj.name2tab[ref_tab_name]
                                 fk_obj = File.construct_fk_obj(fk_col_name, ref_tab_obj, ref_col_name)
