@@ -36,6 +36,7 @@ Procedure design:
 # [Done] handle PK                                            #
 # [Done] handle FK                                            #
 # [Done] handle multi-col keys                                #
+# [Done] parse for single-file level                          #
 # [Done] parse for repo-database level                        #
 # [Done] handle clauses without semicolon delimiter           #
 # [Done] handle create (unique) index                         #
@@ -1185,7 +1186,8 @@ def parse_repo_files(repo_obj):
                             tab_name, fk_col_name, ref_tab_name, ref_col_name = item
                             if tab_name in repo_obj.name2tab \
                                     and ref_tab_name in repo_obj.name2tab \
-                                    and ref_col_name in repo_obj.name2tab[ref_tab_name].name2col:
+                                    and file_obj.is_fk_ref_valid(tab_name, fk_col_name) \
+                                    and file_obj.is_fk_ref_valid(ref_tab_name, ref_col_name):
                                 tab_obj = repo_obj.name2tab[tab_name]
                                 ref_tab_obj = repo_obj.name2tab[ref_tab_name]
                                 fk_obj = File.construct_fk_obj(fk_col_name, ref_tab_obj, ref_col_name)
