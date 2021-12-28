@@ -476,7 +476,7 @@ class File:
         try:
             # parse table name, create table obj
             # tab_name = fmt_str(stmt.split("create table")[1].split('(')[0]).replace("if not exists", "").strip()  # deprecated
-            tab_name = re.match(REGEX_DICT("get_create_table_name"), stmt, re.IGNORECASE).group(1)
+            tab_name = fmt_str(re.match(REGEX_DICT("get_create_table_name"), stmt, re.IGNORECASE).group(1))
             tab_obj = Table(tab_name, self.hashid)
             # get all clauses on create table
             clauses = stmt.split("create table")[1].split('(', 1)[1].strip()
@@ -759,7 +759,9 @@ class File:
         """
         # parse table name
         try:
-            tab_name = fmt_str(stmt.split('alter table')[1].replace(" only ", ' ').split()[0])
+            # "alter\stable\s(.*?)\s"
+            # tab_name = fmt_str(stmt.split('alter table')[1].replace(" only ", ' ').split()[0])
+            tab_name = fmt_str(re.match(REGEX_DICT("get_alter_table_name"), stmt, re.IGNORECASE).group(1))
             if tab_name not in self.repo_name2tab:
                 print(f"Did not find this table on alter table: {tab_name}")
                 return None
