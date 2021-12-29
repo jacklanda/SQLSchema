@@ -28,7 +28,8 @@ sql_parse(){
 
 sql_parse_debug(){
     echo "sql parse debug"
-    python sql_parse/repo_parse_sql.py
+    # python sql_parse/repo_parse_sql.py
+    python -m pudb sql_parse/repo_parse_sql.py
 }
 
 unit_test(){
