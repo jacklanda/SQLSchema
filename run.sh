@@ -19,6 +19,7 @@ help(){
     echo "  -h, --help\tshow list of command-line options"
     echo "  -t, --test\tunit test for shell script functions"
     echo "  -p, --parse\tfork a SQL parse process"
+    echo "  -d, --debug\tdebug SQL parse scripts with pudb"
 }
 
 sql_parse(){
@@ -28,7 +29,7 @@ sql_parse(){
 
 sql_parse_debug(){
     echo "sql parse debug"
-    # python sql_parse/repo_parse_sql.py
+     #python sql_parse/repo_parse_sql.py
     python -m pudb sql_parse/repo_parse_sql.py
 }
 
@@ -52,7 +53,7 @@ main(){
         "-d" | "--debug")
             sql_parse_debug
             ;;
-        *) echo "invalid arg: ${fn_slt}"
+        *) echo "invalid arg: ${fn_slt}"; help
     esac
 }
 
