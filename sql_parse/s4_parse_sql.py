@@ -449,7 +449,7 @@ class File:
             if tab in self.repo_name2tab:
                 tab_obj = self.repo_name2tab[tab]
             else:
-                print(f"Unknown ref table `{tab}`")
+                print(f"Unknown ref table `{tab}`", end=" | ")
                 return False
         else:
             raise TypeError("References check error! Param `tab`'s type must be either Table or str")
@@ -792,7 +792,7 @@ class File:
             multicol_list = re.findall("\(.*?\)", stmt, re.IGNORECASE)
             stmt = re.sub("\(.*?\)", "[MULTI-COL]", stmt)
             clauses = stmt.split("alter table")[1].strip().split(',')
-            with Timeout(seconds=1):
+            with Timeout(seconds=3):
                 # potential memory leak here, could be handled better.
                 if len(multicol_list) != 0:
                     temp_list = list()
@@ -815,7 +815,7 @@ class File:
                         clause = clause.split("add constraint")[1].strip()
                         result = re.findall(pattern, clause, re.IGNORECASE)[0]
                         if isinstance(result, str):
-                            pk_cols = result
+                            pk_cols = fmt_str(result)
                         else:
                             raise Exception("ADD CONSTRAINT PRIMARY KEY error: match number must be 1!")
                     elif "add primary key" in clause:
@@ -823,7 +823,7 @@ class File:
                         clause = clause.split("add primary key")[1].strip()
                         result = re.findall(pattern, clause, re.IGNORECASE)[0]
                         if isinstance(result, str):
-                            pk_cols = result
+                            pk_cols = fmt_str(result)
                         else:
                             raise Exception("ADD PRIMARY KEY error: match number not equal to 1!")
                     else:
@@ -847,6 +847,9 @@ class File:
                         # 1. ADD CONSTRAINT [alias] FOREIGN KEY([fk_name]) REFERENCES [ref_table_name]([ref_col_name])
                         if len(result) == 3:
                             fk_cols, fk_ref_tab, fk_ref_cols = result
+                            fk_cols = fmt_str(fk_cols)
+                            fk_ref_tab = fmt_str(fk_ref_tab)
+                            fk_ref_cols = fmt_str(fk_ref_cols)
                         else:
                             raise Exception("ADD CONSTRAINT FOREIGN KEY error: match number not equal to 3!")
                     elif "add foreign key" in clause:
@@ -881,8 +884,8 @@ class File:
                         pattern = REGEX_DICT("add_unique_key_alter_table")
                         result = re.findall(pattern, clause, re.IGNORECASE)[0]
                         if len(result) == 2:
-                            # uniq_key_name = result[0]  # unused for now
-                            uniq_key_cols = result[1]
+                            # uniq_key_name = fmt_str(result[0])  # unused for now
+                            uniq_key_cols = fmt_str(result[1])
                         else:
                             raise Exception("ADD UNIQUE KEY error: match number not equal to 2!")
                         if self.is_uk_ref_valid(tab_name, uniq_key_cols):
@@ -897,7 +900,7 @@ class File:
                         clause = clause.split("add unique index")[1].strip()
                         result = re.findall(pattern, clause, re.IGNORECASE)
                         if len(result) == 1:
-                            ui_cols = result[0]
+                            ui_cols = fmt_str(result[0])
                         else:
                             raise Exception("ADD UNIQUE INDEX error: match number not equal to 1!")
                         if self.is_ui_ref_valid(tab_name, ui_cols):
@@ -911,7 +914,7 @@ class File:
                         pattern = REGEX_DICT("add_constraint_unique_alter_table")
                         result = re.findall(pattern, clause, re.IGNORECASE)
                         if len(result) == 1:
-                            uk_cols = result[0]
+                            uk_cols = fmt_str(result[0])
                         else:
                             raise Exception("ADD CONSTRAINT UNIQUE error: match number not equal to 1!")
                         if self.is_uk_ref_valid(tab_name, uk_cols):
@@ -925,9 +928,9 @@ class File:
                         pattern = REGEX_DICT("create_unique_index_alter_table")
                         result = re.findall(pattern, clause, re.IGNORECASE)[0]
                         if len(result) == 2 or len(result) == 3:
-                            ref_tab = result[0]
-                            ref_cols = result[1]
-                            # asc_or_desc = result[2]  # unused for now
+                            ref_tab = fmt_str(result[0])
+                            ref_cols = fmt_str(result[1])
+                            # asc_or_desc = fmt_str(result[2])  # unused for now
                         else:
                             raise Exception("CREATE UNIQUE INDEX error: match number not equal to 2 or 3!")
                         if self.is_ui_ref_valid(ref_tab, ref_cols):
@@ -943,7 +946,7 @@ class File:
                     pattern = REGEX_DICT("add_key_alter_table")
                     result = re.findall(pattern, clause, re.IGNORECASE)
                     if len(result) == 1:
-                        key_cols = result[0]
+                        key_cols = fmt_str(result[0])
                     else:
                         raise Exception("ADD KEY error: match number not equal to 1!")
                     if self.is_key_ref_valid(tab_name, key_cols):
@@ -975,9 +978,9 @@ class File:
             pattern = REGEX_DICT("create_index_or_unique_index")
             result = re.findall(pattern, stmt, re.IGNORECASE)[0]
             if len(result) == 3:
-                idx_tab_name = result[0]
-                # idx_type = result[1]  # unused for now
-                idx_cols = result[2]
+                idx_tab_name = fmt_str(result[0])
+                # idx_type = fmt_str(result[1])  # unused for now
+                idx_cols = fmt_str(result[2])
             else:
                 raise Exception("CREATE INDEX error: match number must be 3!")
             if self.is_ui_ref_valid(idx_tab_name, idx_cols):
