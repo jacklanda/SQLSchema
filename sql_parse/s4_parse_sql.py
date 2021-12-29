@@ -479,8 +479,8 @@ class File:
         """
         try:
             # parse table name, create table obj
-            # tab_name = fmt_str(stmt.split("create table")[1].split('(')[0]).replace("if not exists", "").strip()  # deprecated
-            tab_name = fmt_str(re.match(REGEX_DICT("get_create_table_name"), stmt, re.IGNORECASE).group(2))
+            tab_name = fmt_str(stmt.split("create table")[1].split('(')[0]).replace("if not exists", "").strip()  # deprecated
+            # tab_name = fmt_str(re.match(REGEX_DICT("get_create_table_name"), stmt, re.IGNORECASE).group(2))
             tab_obj = Table(tab_name, self.hashid)
             # get all clauses on create table
             clauses = stmt.split("create table")[1].split('(', 1)[1].strip()
@@ -492,8 +492,8 @@ class File:
             # this regex pattern could ensure multi columns kept.
             clauses = [c.strip() for c in re.split(REGEX_DICT("split_clause_by_comma"), clauses) if not c.isspace()]
             for clause in clauses:
-                # skip the clause which starts with comment
-                if clause.startswith("comment"):
+                # skip the clause which starts with COMMENT ON
+                if clause.startswith("comment on"):
                     continue
                 # handle clause starts with constraint
                 elif clause.startswith("constraint"):
@@ -764,8 +764,8 @@ class File:
         # parse table name
         try:
             # "alter\stable\s(.*?)\s"
-            # tab_name = fmt_str(stmt.split('alter table')[1].replace(" only ", ' ').split()[0])
-            tab_name = fmt_str(re.match(REGEX_DICT("get_alter_table_name"), stmt, re.IGNORECASE).group(2))
+            tab_name = fmt_str(stmt.split('alter table')[1].replace(" only ", ' ').split()[0])
+            # tab_name = fmt_str(re.match(REGEX_DICT("get_alter_table_name"), stmt, re.IGNORECASE).group(2))
             if tab_name not in self.repo_name2tab:
                 print(f"Did not find this table on alter table: {tab_name}")
                 return None
