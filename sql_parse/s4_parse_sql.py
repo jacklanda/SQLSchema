@@ -40,9 +40,7 @@ Procedure design:
 # [Done] parse for repo-database level                        #
 # [Done] handle clauses without semicolon delimiter           #
 # [Done] handle create (unique) index                         #
-# TODO: handle queries with JOINs                             #
-# TODO: check on alter table                                  #
-#       https://www.w3schools.com/sql/sql_check.asp           #
+# [TODO] handle queries with JOINs                             #
 ###############################################################
 
 
@@ -487,7 +485,7 @@ class File:
             # remove the last found index of )
             clauses = "".join(clauses[i] for i in range(len(clauses)) if i != clauses.rfind(')'))
             # remove type size with parentheses
-            clauses = re.sub("\(\d+\)", "", clauses)
+            clauses = re.sub("\(\d+,?\d*\)", "", clauses)
             # split by comma, use regex to ignore commas in matching parentheses
             # this regex pattern could ensure multi columns kept.
             clauses = [c.strip() for c in re.split(REGEX_DICT("split_clause_by_comma"), clauses) if not c.isspace()]
@@ -555,9 +553,6 @@ class File:
                             tab_obj.key_list.append(uk_obj)
                         else:
                             raise Exception("CONSTRAINT UNIQUE def error: references on create table not found!")
-                    elif "check" in clause:
-                        # print("TODO: handle constraint CHECK on create table")
-                        pass
                     else:
                         raise Exception("CONSTRAINT handle error: unknown constraint type!")
                 # handle primary key
@@ -696,11 +691,6 @@ class File:
                         tab_obj.key_list.append(index_obj)
                     else:
                         raise Exception("INDEX ref error: references on create table not found!")
-                # TODO: handle constraint CHECK
-                # handle CONSTRAINT [constraint_name] CHECK ([check_conditions])
-                elif "check" in clause:
-                    # print("TODO: handle constraint CHECK on create table")
-                    pass
                 # handle data_compression
                 elif clause.startswith("data_compression"):
                     pass
@@ -761,9 +751,8 @@ class File:
         -------
         - None
         """
-        # parse table name
         try:
-            # "alter\stable\s(.*?)\s"
+            # parse table name
             tab_name = fmt_str(stmt.split('alter table')[1].replace(" only ", ' ').split()[0])
             # tab_name = fmt_str(re.match(REGEX_DICT("get_alter_table_name"), stmt, re.IGNORECASE).group(2))
             if tab_name not in self.repo_name2tab:
