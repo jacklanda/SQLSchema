@@ -691,9 +691,6 @@ class File:
                         tab_obj.key_list.append(index_obj)
                     else:
                         raise Exception("INDEX ref error: references on create table not found!")
-                # handle data_compression
-                elif clause.startswith("data_compression"):
-                    pass
                 # handle ordinary col definition
                 # TODO: handle the col with references
                 #       (e.g. UserID integer REFERENCES users (UserID) ON DELETE CASCADE,)
