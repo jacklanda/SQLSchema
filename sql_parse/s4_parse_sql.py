@@ -519,7 +519,6 @@ class File:
                         else:
                             raise Exception("CONSTRAINT FOREIGN KEY def error: match number must be 3!")
                         if self.is_fk_ref_valid(tab_obj, fk_cols):
-                            fk_ref_tab = fmt_str(fk_ref_tab)
                             if fk_ref_tab == tab_name and self.is_fk_ref_valid(tab_obj, fk_ref_cols):
                                 # print(f"| <foreign_key_cols:\"{fmt_str(fk_cols)}\"> | <fk_ref_tab:\"{fmt_str(fk_ref_tab)}\"> | <fk_ref_cols:\"{fmt_str(fk_ref_cols)}\"> |")
                                 fk_obj = File.construct_fk_obj(fk_cols, tab_obj, fk_ref_cols)
@@ -537,12 +536,12 @@ class File:
                         else:
                             raise Exception("CONSTRAINT FOREIGN KEY def error: references on create table not found!")
                     # handle: CONSTRAINT [constraint_name] UNIQUE ([uniq_cols])
-                    # n.b. UNQIUE and UNQIEU KEY are equivalent
+                    # n.b. UNIQUE and UNIQUE KEY are equivalent
                     elif "unique" in clause:
                         pattern = REGEX_DICT("constraint_unique_create_table")
                         result = re.findall(pattern, clause, re.IGNORECASE)
                         if len(result) == 1:
-                            uk_cols = rm_kw(result[0])
+                            uk_cols = fmt_str(rm_kw(result[0]))
                         else:
                             raise Exception("CONSTRAINT UNIQUE def error: match number must be 1!")
                         if self.is_uk_ref_valid(tab_obj, uk_cols):
@@ -970,7 +969,7 @@ class File:
                 raise Exception("CREATE INDEX error: match number must be 3!")
             if self.is_ui_ref_valid(idx_tab_name, idx_cols):
                 # print(f"| <index_table:\"{fmt_str(idx_tab_name)}\"> | <index_cols:\"{fmt_str(idx_cols)}\"> |")
-                tab_obj = self.repo_name2tab[fmt_str(idx_tab_name)]
+                tab_obj = self.repo_name2tab[idx_tab_name]
                 idx_obj = File.construct_key_obj("UniqueIndex", idx_cols)\
                     if "create unique index" in stmt else File.construct_key_obj("Index", idx_cols)
                 tab_obj.key_list.append(idx_obj)
