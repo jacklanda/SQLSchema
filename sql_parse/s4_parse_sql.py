@@ -484,8 +484,6 @@ class File:
             clauses = stmt.split("create table")[1].split('(', 1)[1].strip()
             # remove the last found index of )
             clauses = "".join(clauses[i] for i in range(len(clauses)) if i != clauses.rfind(')'))
-            # remove type size with parentheses
-            clauses = re.sub("\(\d+,?\d*\)", "", clauses)
             # split by comma, use regex to ignore commas in matching parentheses
             # this regex pattern could ensure multi columns kept.
             clauses = [c.strip() for c in re.split(REGEX_DICT("split_clause_by_comma"), clauses) if not c.isspace()]
@@ -960,13 +958,14 @@ class File:
         - None
         """
         stmt = fmt_str(stmt)
+        def remove_keyword(s): return s.replace(" desc", "").replace(" nulls", "").replace(" last", "")
         try:
             pattern = REGEX_DICT("create_index_or_unique_index")
             result = re.findall(pattern, stmt, re.IGNORECASE)[0]
             if len(result) == 3:
                 idx_tab_name = fmt_str(result[0])
                 # idx_type = fmt_str(result[1])  # unused for now
-                idx_cols = fmt_str(result[2])
+                idx_cols = fmt_str(remove_keyword(result[2]))
             else:
                 raise Exception("CREATE INDEX error: match number must be 3!")
             if self.is_ui_ref_valid(idx_tab_name, idx_cols):
@@ -1037,19 +1036,21 @@ class File:
         -------
         - None
         """
+        def add_semicolon(s): return s\
+            .replace("create table", ";\ncreate table")\
+            .replace(";\ncreate table", "create table", 1)\
+            .replace("alter table", ";\nalter table")\
+            .replace(";\nalter table", "alter table", 1)\
+            .replace("create index", ";\ncreate index")\
+            .replace(";\ncreate index", "create index", 1)\
+            .replace("create unique index", ";\ncreate unique index")\
+            .replace(";\ncreate unique index", "create unique index", 1)
+
         if ';' in stmts:
             stmts = stmts.lower().split(';')
         else:
-            stmts = stmts.lower()\
-                .replace("create table", ";\ncreate table")\
-                .replace(";\ncreate table", "create table", 1)\
-                .replace("alter table", ";\nalter table")\
-                .replace(";\nalter table", "alter table", 1)\
-                .replace("create index", ";\ncreate index")\
-                .replace(";\ncreate index", "create index", 1)\
-                .replace("create unique index", ";\ncreate unique index")\
-                .replace(";\ncreate unique index", "create unique index", 1)\
-                .split(';')
+            # split statements by adding semicolon manually
+            stmts = add_semicolon(stmts.lower()).split(';')
         if stage == ParseStage.create:
             stmts = (s for s in stmts if "create table" in s)
         elif stage == ParseStage.alter:
@@ -1174,9 +1175,9 @@ def parse_repo_files(repo_obj):
                         for item in file_obj.memo:
                             tab_name, fk_col_name, ref_tab_name, ref_col_name = item
                             if tab_name in repo_obj.name2tab \
-                                    and ref_tab_name in repo_obj.name2tab:
-                                # and file_obj.is_fk_ref_valid(tab_name, fk_col_name) \
-                                # and file_obj.is_fk_ref_valid(ref_tab_name, ref_col_name):
+                                    and ref_tab_name in repo_obj.name2tab\
+                                    and file_obj.is_fk_ref_valid(tab_name, fk_col_name) \
+                                    and file_obj.is_fk_ref_valid(ref_tab_name, ref_col_name):
                                 tab_obj = repo_obj.name2tab[tab_name]
                                 ref_tab_obj = repo_obj.name2tab[ref_tab_name]
                                 fk_obj = File.construct_fk_obj(fk_col_name, ref_tab_obj, ref_col_name)

@@ -262,8 +262,10 @@ def clean_stmt(stmt):
     # remove COMMENT ...
     pattern = "(\s+comment\s*[\s|=]?\s*['|\"\`].*?['|\"\`])[,|\n|;]"
     result = re.findall(pattern, stmt, re.IGNORECASE)
-    for each in result:
-        stmt = stmt.replace(each, "")
+    for item in result:
+        stmt = stmt.replace(item, "")
+    # remove type size with parentheses
+    stmt = re.sub("\(\d+[,\s*\d*]*\)", "", stmt)
     return stmt
 
 
