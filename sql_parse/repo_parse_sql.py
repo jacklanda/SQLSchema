@@ -4,17 +4,23 @@
 
 
 import os
+import sys
+import time
+import glob
 import pickle
+from random import sample, shuffle
+from multiprocessing import Pool
 
 from s4_parse_sql import parse_repo_files
 
 
+PARALLEL = True
 INPUT_FOLDER = os.path.join(os.getcwd(), "data/s3_sql_files_crawled_all_vms")
 OUTPUT_FOLDER = os.path.join(os.getcwd(), "data/s4_sql_files_parsed")
 
 
 class Repository:
-    """Construct a repo object for a real GitHub repository,
+    """Construct a repo object for a GitHub repository,
     which containts a set of SQL files.
 
     Params
@@ -23,24 +29,31 @@ class Repository:
     - sql_file_set: set[tuple[str, str]]
     - repo_memo: Optional[dict, None], default=None
     - parsed_file_list: Optional[dict, None], default=None
+    - join_query_list: Optinal[list, None], default=None
 
     Attribs
     -------
     - repo_url: str
     - repo_fpath_list: list[str]
     - repo_furl_list: list[str]
+    - memo: dict[str:tuple[str, str, str]]
+    - parsed_file_list: list[File]
+    - join_query_list: list[Query]
+    - name2tab: dict[str:Table]
 
     Returns
     -------
     - a repo object
     """
 
-    def __init__(self,
-                 repo_url,
-                 sql_file_set,
-                 repo_memo=None,
-                 parsed_file_list=None
-                 ):
+    def __init__(
+        self,
+        repo_url,
+        sql_file_set,
+        repo_memo=None,
+        parsed_file_list=None,
+        join_query_list=None,
+    ):
         # The referred table may not be found while handling, use a memo to keep it temporarily,
         # and at last traverse this unhandled referred table name according to the more complete repo object.
         # n.b. should treat the temporary unfound referred table as normal and mark it in memo!
@@ -49,7 +62,9 @@ class Repository:
         self.__repo_furls = [f[1] for f in sql_file_set]
         self.__repo_memo = repo_memo
         self.__parsed_file_list = parsed_file_list
+        self.__join_query_list = join_query_list
         self.__name2tab = dict()
+        self.__check_failed_cases = list()
 
     @ property
     def repo_url(self):
@@ -125,6 +140,34 @@ class Repository:
         self.__parsed_file_list = l
 
     @property
+    def join_query_list(self):
+        """Get attribute `join_query_list`(read-write)
+        Property `join_query_list` to set and get a list of Query objects.
+
+        Params
+        ------
+        - for getter
+            - None
+        - for setter
+            - l: list
+
+        Returns
+        -------
+        - for getter
+            - list 
+        - for setter
+            - None
+        """
+        return self.__join_query_list
+
+    @join_query_list.setter
+    def join_query_list(self, l):
+        """Property join_query_list setter method."""
+        if not isinstance(l, list):
+            raise TypeError("Could only assign attrib `join_query_list` with a list object!")
+        self.__join_query_list = l
+
+    @property
     def name2tab(self):
         """Get attribute `name2tab`(read-write)
 
@@ -144,6 +187,14 @@ class Repository:
             raise TypeError("Could only assign attrib `name2tab` with a dict object!")
         self.__name2tab = d
 
+    @property
+    def check_failed_cases(self):
+        return self.__check_failed_cases
+
+    @check_failed_cases.setter
+    def check_failed_cases(self, l):
+        self.__check_failed_cases = l
+
     def insert(self, element):
         # if isinstance(element, File):
         if self.__parsed_file_list is None:
@@ -151,7 +202,7 @@ class Repository:
         self.__parsed_file_list.append(element)
 
 
-def dump_repo_list(parsed_repo_list, pickle_fname="s4_parsed_sql_repo_list.pkl"):
+def dump_repo_list(parsed_repo_list, pkl_dir, pkl_fname):
     """Dump parsed repo list to a local pickle file.
 
     Params
@@ -163,25 +214,53 @@ def dump_repo_list(parsed_repo_list, pickle_fname="s4_parsed_sql_repo_list.pkl")
     -------
     - None
     """
-    pickle_fpath = os.path.join(OUTPUT_FOLDER, pickle_fname)
-    pickle.dump(parsed_repo_list, open(pickle_fpath, "wb"))
+    pkl_fpath = os.path.join(pkl_dir, pkl_fname)
+    pickle.dump(parsed_repo_list, open(pkl_fpath, "wb"))
 
 
-def aggregate(fpath="data/s2_sql_file_list_2021-11-11.txt", max_repo_limit=9999999):
+def make_dir(f_name_base):
+    dir_name = OUTPUT_FOLDER + '/' + f_name_base
+    try:
+        os.mkdir(dir_name)
+    except:
+        print(f"dir {dir_name} exists")
+    return dir_name
+
+
+def merge_pkl_files(dir_name):
+    merge_list = list()
+    pkl_files = [f for f in glob.glob(os.path.join(dir_name, '*.pkl'))]
+    for pkl_file in pkl_files:
+        partial_list = pickle.load(open(pkl_file, "rb"))
+        merge_list += partial_list
+    pickle.dump(open(dir_name + '/' + dir_name.rsplit('/', 1)[-1] + ".pkl"))
+
+
+def aggregate(fpath="data/s2_sql_file_list.txt", max_repo_limit=9999999):
     """Aggregate all the SQL files under the same repository,
     and return a list of `repo databases` where we treat all tables in a repository as a database.
 
     Params
     ------
-    - fpath: str, default="data/s2_sql_file_list_2021-11-11.txt"
+    - fpath: str, default="data/s2_sql_file_list.txt"
     - max_repo_num: int, default=9999999
 
     Returns
     -------
     - repo_list: list[Repository]
     """
-    repo_dict = dict()
+    # pickle_fpath = "data/samples/fpath_list_11k_2022_01_18_02:15:15.pkl"
+    # pickle_fpath = "data/samples/fpath_list_100_2022_01_23_03:36:27.pkl"
+    # pickle.dump(sample(repo_list, 100), open(pickle_fpath, "wb"))
+    # samples = sample(pickle.load(open(pickle_fpath, "rb")), 100)
+    # pickle.dump(samples, open(f"data/samples/fpath_list_100_{time.strftime('%Y_%m_%d_%H:%M:%S')}.pkl", "wb"))
+    # samples = pickle.load(open(pickle_fpath, "rb"))
+    # return samples
+    # return pickle.load(open(pickle_fpath, "rb"))
+
     repo_list = list()
+    """
+    repo_dict = dict()
     with open(fpath, "r") as fp:
         for i, line in enumerate(fp.readlines()):
             if i > max_repo_limit:
@@ -199,29 +278,81 @@ def aggregate(fpath="data/s2_sql_file_list_2021-11-11.txt", max_repo_limit=99999
             else:
                 repo_dict[repo_url] = set()
                 repo_dict[repo_url].add(sql_tuple)
+    """
+
+    # """
+    repo_dict = pickle.load(open("data/samples/repo_dict.pkl", "rb"))
 
     for repo_url, file_set in repo_dict.items():
-        # if repo_url == "https://github.com/prelegalwonder/zabbix":
+        # if repo_url == "https://github.com/usgs/geomag-web-absolutes":
         # repo_obj = Repository(repo_url, file_set)
         # repo_list.append(repo_obj)
         # break
-        repo_obj = Repository(repo_url, file_set)
+        repo_obj = Repository(repo_url, list(file_set))
         repo_list.append(repo_obj)
+    shuffle(repo_list)
     print(f"Totally aggregate repo nums: {len(repo_list)}")
 
+    # return sample(repo_list, 11000)
+    # """
     return repo_list
+    # pickle_fpath = f"data/samples/s4_parsed_sql_repo_list_{time.strftime('%Y_%m_%d_%H:%M:%S')}.pkl"
+    # samples = sample(repo_list, 11000)
+    # pickle.dump(samples, open("data/samples/repo_list_11k.pkl", "wb"))
+    # pickle.dump(sample(repo_list, 100), open(pickle_fpath, "wb"))
+    # return pickle.load(open("data/samples/repo_list_11k.pkl", "rb"))
 
 
 if __name__ == "__main__":
-    repo_list = aggregate()
+    result_obj_list = list()
     parsed_repo_list = list()
-    for i, repo in enumerate(repo_list):
-        print("=" * 36, ' ', repo.repo_url, ' ', "=" * 36)
-        parsed_repo = parse_repo_files(repo)
-        # print("hashid: ", parsed_repo.name2tab["escalations"].hashid)
-        # print(parsed_repo.name2tab["escalations"].name2col)
-        # print("hashid: ", parsed_repo.name2tab["items_tmp"].hashid)
-        # print(parsed_repo.name2tab["items_tmp"].name2col)
-        print(parsed_repo.name2tab)
-        parsed_repo_list.append(parsed_repo)
-    dump_repo_list(parsed_repo_list)
+    repo_list = aggregate()
+    sys.setrecursionlimit(100000000)
+
+    batch_num = 0
+    pkl_fname_base = f"s4_parsed_sql_repo_list_{time.strftime('%Y_%m_%d_%H:%M:%S')}"
+    pkl_dir = make_dir(pkl_fname_base)
+
+    if PARALLEL:
+        pool = Pool(32)
+        for i, repo in enumerate(repo_list):
+            result_obj = pool.apply_async(parse_repo_files, (repo,))
+            result_obj_list.append(result_obj)
+            if i % 1100000 == 0:
+                batch_num += 1
+                results = (result_obj.get() for result_obj in result_obj_list)
+                parsed_repo_list = [r for r in results if r is not None]
+                dump_repo_list(parsed_repo_list, pkl_dir, pkl_fname_base + '_' + str(batch_num) + ".pkl")
+                result_obj_list.clear()
+            elif i == len(repo_list) - 1:
+                batch_num += 1
+                results = (result_obj.get() for result_obj in result_obj_list)
+                parsed_repo_list = [r for r in results if r is not None]
+                dump_repo_list(parsed_repo_list, pkl_dir, pkl_fname_base + '_' + str(batch_num) + ".pkl")
+                result_obj_list.clear()
+        merge_pkl_files(pkl_dir)
+    else:
+        for i, repo in enumerate(repo_list):
+            print("=" * 30, f'repo:{i+1}', repo.repo_url, "=" * 30)
+            parsed_repo = parse_repo_files(repo)
+            """
+            if parsed_repo is not None:
+                print(parsed_repo.name2tab)
+                print()
+                print(parsed_repo.join_query_list)
+                print()
+            """
+            """
+            for query_obj in parsed_repo.join_query_list:
+                print(query_obj.hashid)
+                for join_obj in query_obj.binary_joins:
+                    print()
+                    print("join object ↓")
+                    print(f"source table: {join_obj.source_table.tab_name} : {join_obj.source_table}", )
+                    print(f"join table: {join_obj.join_table.tab_name} : {join_obj.join_table}", )
+                    print("join type:", join_obj.join_type)
+                    print("conditions:", join_obj.conditions)
+                    print("extract from:", join_obj.extract_from)
+            """
+            parsed_repo_list.append(parsed_repo)
+            dump_repo_list(parsed_repo_list, pkl_dir, pkl_fname_base + '_' + str(i) + ".pkl")
