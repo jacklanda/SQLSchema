@@ -250,7 +250,7 @@ class Counter:
 class Timeout:
     """Timeout class for timing and avoiding long-time string processing."""
 
-    def __init__(self, seconds=10, error_message="Timeout"):
+    def __init__(self, seconds=1, error_message="Timeout"):
         self.seconds = seconds
         self.error_message = error_message
 
@@ -338,10 +338,12 @@ def query_stmt_split(fpath):
                 stmt = ""
                 continue
             stmt += line
+        if stmt not in split_by_newline:
+            split_by_newline.append(stmt)
         for stmt in split_by_newline:
             sub_stmts = stmt.split(';')
             try:
-                with Timeout(5):
+                with Timeout(1):
                     split_by_semicolon += [sqlparse.format(s.strip(), strip_comments=True)
                                            for s in sub_stmts
                                            if s != '\n'
@@ -356,6 +358,7 @@ def query_stmt_split(fpath):
         stmts = [' '.join(s.split()) for s in split_by_semicolon]
 
     return [convert_camel_to_underscore(s) for s in stmts if any(op in s for op in BINARY_OP)]
+    # return [s for s in stmts if any(op in s for op in BINARY_OP)]
 
 
 def calc_col_cov(table_lhs, table_rhs):
@@ -400,7 +403,7 @@ if __name__ == "__main__":
             s = s.lower()
             s = fmt_str(s)
             try:
-                with Timeout(3):
+                with Timeout(1):
                     s = sqlparse.format(s, strip_comments=True)
             except:
                 pass

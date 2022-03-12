@@ -2,6 +2,7 @@
 # @author: Yang Liu
 # @email: v-yangliu4@microsoft.com
 
+
 """
 sql_parse.exceptions
 ~~~~~~~~~~~~~~~~~~~~
@@ -9,11 +10,11 @@ sql_parse.exceptions
 This module contains the set of sql_parse's exceptions.
 """
 
+
 from inspect import getframeinfo, stack
 
 
 # Self-defined Errors / Exceptions
-
 
 class SQLParseError(Exception):
     """An ambiguous exception that occurred while parsing SQL statements."""

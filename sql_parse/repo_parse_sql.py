@@ -65,6 +65,7 @@ class Repository:
         self.__join_query_list = join_query_list
         self.__name2tab = dict()
         self.__check_failed_cases = list()
+        self.__unfound_tables = list()
 
     @ property
     def repo_url(self):
@@ -126,7 +127,7 @@ class Repository:
         Returns
         -------
         - for getter
-            - list 
+            - list
         - for setter
             - None
         """
@@ -154,7 +155,7 @@ class Repository:
         Returns
         -------
         - for getter
-            - list 
+            - list
         - for setter
             - None
         """
@@ -195,6 +196,14 @@ class Repository:
     def check_failed_cases(self, l):
         self.__check_failed_cases = l
 
+    @property
+    def unfound_tables(self):
+        return self.__unfound_tables
+
+    @unfound_tables.setter
+    def unfound_tables(self, t):
+        self.__unfound_tables = t
+
     def insert(self, element):
         # if isinstance(element, File):
         if self.__parsed_file_list is None:
@@ -229,11 +238,11 @@ def make_dir(f_name_base):
 
 def merge_pkl_files(dir_name):
     merge_list = list()
-    pkl_files = [f for f in glob.glob(os.path.join(dir_name, '*.pkl'))]
+    pkl_files = [f for f in glob.glob(os.path.join(dir_name, "*.pkl"))]
     for pkl_file in pkl_files:
         partial_list = pickle.load(open(pkl_file, "rb"))
         merge_list += partial_list
-    pickle.dump(open(dir_name + '/' + dir_name.rsplit('/', 1)[-1] + ".pkl"))
+    pickle.dump(open(dir_name + '/' + dir_name.rsplit('/', 1)[-1] + ".pkl", "wb"))
 
 
 def aggregate(fpath="data/s2_sql_file_list.txt", max_repo_limit=9999999):
@@ -280,27 +289,44 @@ def aggregate(fpath="data/s2_sql_file_list.txt", max_repo_limit=9999999):
                 repo_dict[repo_url].add(sql_tuple)
     """
 
-    # """
+    """
+    user_nums = list()
     repo_dict = pickle.load(open("data/samples/repo_dict.pkl", "rb"))
-
     for repo_url, file_set in repo_dict.items():
-        # if repo_url == "https://github.com/usgs/geomag-web-absolutes":
-        # repo_obj = Repository(repo_url, file_set)
-        # repo_list.append(repo_obj)
-        # break
+        if repo_url == "https://github.com/microsoft/sqllinuxlabs":
+            repo_obj = Repository(repo_url, file_set)
+            repo_list.append(repo_obj)
+            break
+            # repo in the same user
+            repo_user = repo_url.rsplit('/', 1)[0].rsplit('/', 1)[1]
+            if len(user_nums) == 1000 and repo_user not in user_nums:
+                continue
+            elif len(user_nums) == 1000 and repo_user in user_nums:
+                repo_obj = Repository(repo_url, list(file_set))
+                repo_list.append(repo_obj)
+            elif len(user_nums) != 1000 and repo_user not in user_nums:
+                user_nums.append(repo_user)
+                repo_obj = Repository(repo_url, list(file_set))
+                repo_list.append(repo_obj)
+            elif len(user_nums) != 1000 and repo_user in user_nums:
+                repo_obj = Repository(repo_url, list(file_set))
+                repo_list.append(repo_obj)
         repo_obj = Repository(repo_url, list(file_set))
         repo_list.append(repo_obj)
-    shuffle(repo_list)
-    print(f"Totally aggregate repo nums: {len(repo_list)}")
+    """
+    # shuffle(repo_list)
+    # print(f"Totally aggregate repo nums: {len(repo_list)}")
 
     # return sample(repo_list, 11000)
     # """
-    return repo_list
+    # return repo_list
     # pickle_fpath = f"data/samples/s4_parsed_sql_repo_list_{time.strftime('%Y_%m_%d_%H:%M:%S')}.pkl"
-    # samples = sample(repo_list, 11000)
     # pickle.dump(samples, open("data/samples/repo_list_11k.pkl", "wb"))
     # pickle.dump(sample(repo_list, 100), open(pickle_fpath, "wb"))
-    # return pickle.load(open("data/samples/repo_list_11k.pkl", "rb"))
+    return pickle.load(open("data/samples/repo_list_11k.pkl", "rb"))
+    # repo_list = pickle.load(open("data/samples/repo_list_11k.pkl", "rb"))
+    # samples = sample(repo_list, 1100)
+    # return samples
 
 
 if __name__ == "__main__":
@@ -315,10 +341,20 @@ if __name__ == "__main__":
 
     if PARALLEL:
         pool = Pool(32)
+        """
+       for i, repo in enumerate(repo_list):
+            result_obj = pool.apply_async(parse_repo_files, (repo,))
+            result_obj_list.append(result_obj)
+            results = (result_obj.get() for result_obj in result_obj_list)
+            parsed_repo_list = [r for r in results if r is not None]
+        dump_repo_list(parsed_repo_list, pkl_dir, pkl_fname_base + ".pkl")
+        exit()
+        """
+        # """
         for i, repo in enumerate(repo_list):
             result_obj = pool.apply_async(parse_repo_files, (repo,))
             result_obj_list.append(result_obj)
-            if i % 1100000 == 0:
+            if i % 220000 == 0:
                 batch_num += 1
                 results = (result_obj.get() for result_obj in result_obj_list)
                 parsed_repo_list = [r for r in results if r is not None]
@@ -331,6 +367,7 @@ if __name__ == "__main__":
                 dump_repo_list(parsed_repo_list, pkl_dir, pkl_fname_base + '_' + str(batch_num) + ".pkl")
                 result_obj_list.clear()
         merge_pkl_files(pkl_dir)
+        # """
     else:
         for i, repo in enumerate(repo_list):
             print("=" * 30, f'repo:{i+1}', repo.repo_url, "=" * 30)

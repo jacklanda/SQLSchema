@@ -283,6 +283,7 @@ class TokenVisitor:
             self.visit(tk)
 
     def get_all_select_tokens(self):
+        # append SELECT clause followed by `INTERSECT`
         tokens = self.get_all_tokens()
         token_select = [t.parent for t in tokens if t.value == "select" and str(t.ttype) == "Token.Keyword.DML"]
         return token_select
@@ -327,7 +328,8 @@ class QueryParser:
         # self.node = None
         self.only_two_join_tables = False
         self.single_query = False
-        # self.check_failed_cases = list()  # [(failed_condition, statement, dictionary)]
+        self.check_failed_cases = list()  # [(failed_condition, statement, dictionary)]
+        self.unfound_tables = list()
 
     def _remove_duplicate_condition(self):
         self.binary_join_list = list(set(self.binary_join_list))
@@ -348,18 +350,16 @@ class QueryParser:
                 select_clauses.append(c)
         return select_clauses
 
-    def _get_top3_likely_strs(self, s, m):
+    def _get_likely_strs(self, s, m):
         # d = 999
         # likely_strs = list()
         d_str_pairs = list()
         for t_name, _ in m.items():
-            # d = distance(s, t_name) if distance(s, t_name) < d else d
-            # likely_str = t_name
             d_str_pair = (distance(s, t_name), t_name)
             d_str_pairs.append(d_str_pair)
         sorted_d = sorted(d_str_pairs, key=lambda t: t[0])
         # return likely_str
-        return sorted_d[:3]
+        return sorted_d
 
     def _check_table_definition(self, table_name):
 
@@ -372,11 +372,12 @@ class QueryParser:
                 s_without_square = s.replace('[', '').replace(']', '')
                 l.append(s_without_square)
                 l.append("#" + s_without_square)
+                l.append("@" + s_without_square)
                 l.append("public." + s_without_square)
                 l.append("#public." + s_without_square)
-                l.append("dbo." + s_without_square)
                 l.append("mydb." + s_without_square)
                 l.append("#" + s)
+                l.append("@" + s)
                 l.append("[dbo]." + s)
                 l.append("#[dbo]." + s)
             elif '.' in s:
@@ -388,6 +389,7 @@ class QueryParser:
                 l.append("public." + s)
                 l.append("#public." + s)
                 l.append("#" + s)
+                l.append("@" + s)
                 l.append("dbo." + s)
                 l.append("mydb." + s)
             else:
@@ -398,16 +400,31 @@ class QueryParser:
                 l.append("public." + s)
                 l.append("#public." + s)
                 l.append("#" + s)
+                l.append("@" + s)
                 l.append("dbo." + s)
                 l.append("mydb." + s)
 
             return l
 
-        possible_items = __normalize(table_name)
+        def __get_map():
+            d = dict()
+            for name, tab_obj in self.name2tab.items():
+                if '.' in name:
+                    last_token = name.rsplit('.', 1)[1]
+                    d[last_token] = (name, tab_obj)
+                else:
+                    d[name] = (name, tab_obj)
+            return d
+
+        possible_items = __normalize(table_name) if '.' not in table_name else __normalize(table_name) + __normalize(table_name.rsplit('.', 1)[1])
+        last_token2name_tab = __get_map()
         if self.name2tab:
-            likely_strs = self._get_top3_likely_strs(table_name, self.name2tab)
+            # likely_strs = self._get_likely_strs(table_name, self.name2tab)
             # print(f"table_name: {table_name}'s most likely match result: {likely_strs}")
             for item in possible_items:
+                # if item in self.name2tab:
+                if item in last_token2name_tab:
+                    return (True, last_token2name_tab[item][0])
                 if item in self.name2tab:
                     return (True, item)
         else:
@@ -430,14 +447,18 @@ class QueryParser:
 
         possible_items = __normalize(column_name)
         if table_obj.name2col:
-            likely_strs = self._get_top3_likely_strs(column_name, table_obj.name2col)
+            # likely_strs = self._get_likely_strs(column_name, table_obj.name2col)
             # print(f"column_name: {column_name}'s most likely match result: {likely_strs}")
             for item in possible_items:
                 if item in table_obj.name2col:
                     return (True, item)
-        else:
-            # print("empty name2col")
-            pass
+                """
+                if likely_strs:
+                    for pair in likely_strs:
+                        d, s = pair
+                        if item.count('_') == d or s.count('_') == d:
+                            return (True, s)
+                """
         return (False, column_name)
 
     def _insert_missing_column(self, c_name, t_obj):
@@ -497,8 +518,8 @@ class QueryParser:
                             l_col_obj = l_tab_obj.name2col[l_col]
                         else:
                             # l_col_obj = self._insert_missing_column(l_col, l_tab_obj)
-                            # print(f"column check fail: {l_col} in {left} {op} {right}")
-                            # self.check_failed_cases.append(((left, op, right), "failed on check column", self.node.statement, l_tab_obj.name2col))
+                            print(f"column check fail: {l_col} in {left} {op} {right}")
+                            self.check_failed_cases.append(((left, op, right), "failed on check column(left)", self.node.statement, l_tab_obj.name2col))
                             continue
                         try:
                             self.node.tables = self.node.tables.remove(l_tab_obj.tab_name) \
@@ -506,18 +527,19 @@ class QueryParser:
                         except:
                             pass
                     else:
-                        # print(f"table check fail: {l_tab} in {left} {op} {right}")
-                        # self.check_failed_cases.append(((left, op, right), "failed on check table", self.node.statement, self.name2tab))
+                        # self.unfound_tables.append(l_tab)  # record unfound tables
+                        print(f"table check fail: {l_tab} in {left} {op} {right}")
+                        self.check_failed_cases.append(((left, op, right), "failed on check table(left)", self.node.statement, self.name2tab))
                         continue
                 else:
                     l_tab_obj, l_col_obj = self._get_table_column_obj(left)
                     if l_tab_obj is None:
-                        # print(f"table check fail: NotKnownTable in {left} {op} {right}")
-                        # self.check_failed_cases.append(((left, op, right), "failed on check table", self.node.statement, self.name2tab))
+                        print(f"table check fail: NotKnownTable in {left} {op} {right}")
+                        self.check_failed_cases.append(((left, op, right), "failed on check table(left)", self.node.statement, self.name2tab))
                         continue
                     if l_col_obj is None:
-                        # print(f"column check fail: {left} in {left} {op} {right}")
-                        # self.check_failed_cases.append(((left, op, right), "failed on check column", self.node.statement, l_tab_obj.name2col))
+                        print(f"column check fail: {left} in {left} {op} {right}")
+                        self.check_failed_cases.append(((left, op, right), "failed on check column(left)", self.node.statement, l_tab_obj.name2col))
                         continue
                     else:
                         l_tab = l_tab_obj.tab_name
@@ -533,24 +555,25 @@ class QueryParser:
                             r_col_obj = r_tab_obj.name2col[r_col]
                         else:
                             # r_col_obj = self._insert_missing_column(r_col, r_tab_obj)
-                            # print(f"column check fail: {r_col} in {left} {op} {right}")
-                            # self.check_failed_cases.append(((left, op, right), "failed on check column", self.node.statement, r_tab_obj.name2col))
+                            print(f"column check fail: {r_col} in {left} {op} {right}")
+                            self.check_failed_cases.append(((left, op, right), "failed on check column(right)", self.node.statement, r_tab_obj.name2col))
                             continue
                         self.node.tables = self.node.tables.remove(r_tab_obj.tab_name) \
                             if self.node and self.node.tables and r_tab_obj.tab_name in self.node.tables else self.node.tables
                     else:
-                        # print(f"table check fail: {r_tab} in {left} {op} {right}")
-                        # self.check_failed_cases.append(((left, op, right), "failed on check table", self.node.statement, self.name2tab))
+                        self.unfound_tables.append(r_tab)  # record unfound tables
+                        print(f"table check fail: {r_tab} in {left} {op} {right}")
+                        self.check_failed_cases.append(((left, op, right), "failed on check table(right)", self.node.statement, self.name2tab))
                         continue
                 else:
                     r_tab_obj, r_col_obj = self._get_table_column_obj(right)
                     if r_tab_obj is None:
-                        # print(f"table check fail: NotKnownTable in {left} {op} {right}")
-                        # self.check_failed_cases.append(((left, op, right), "failed on check table", self.node.statement, self.name2tab))
+                        print(f"table check fail: NotKnownTable in {left} {op} {right}")
+                        self.check_failed_cases.append(((left, op, right), "failed on check table(right)", self.node.statement, self.name2tab))
                         continue
                     if r_col_obj is None:
-                        # print(f"column check fail: {right} in {left} {op} {right}")
-                        # self.check_failed_cases.append(((left, op, right), "failed on check column", self.node.statement, r_tab_obj.name2col))
+                        print(f"column check fail: {right} in {left} {op} {right}")
+                        self.check_failed_cases.append(((left, op, right), "failed on check column(right)", self.node.statement, r_tab_obj.name2col))
                         continue
                     else:
                         r_tab = r_tab_obj.tab_name
@@ -566,7 +589,7 @@ class QueryParser:
                     binaryjoin_obj = self._construct_binaryjoin_object(l_tab_obj, l_col_obj, r_tab_obj, r_col_obj, op)
                     binaryjoin_list.append(binaryjoin_obj)
                     name_pair2obj_pair[(l_tab, r_tab)] = binaryjoin_obj
-                # print(f"table and column check succ: {l_tab}.{l_col} {op} {r_tab}.{r_col}")
+                print(f"table and column check succ: {l_tab}.{l_col} {op} {r_tab}.{r_col}")
         # """
         else:
             for condition in condition_list:
@@ -581,12 +604,13 @@ class QueryParser:
                         l_col_obj = l_tab_obj.name2col[l_col]
                     else:
                         # l_col_obj = self._insert_missing_column(l_col, l_tab_obj)
-                        # print(f"column check fail: {l_col} in {l_tab}.{l_col} {op} {r_tab}.{r_col}")
-                        # self.check_failed_cases.append((condition, "failed on check column", self.node.statement, l_tab_obj.name2col))
+                        print(f"column check fail: {l_col} in {l_tab}.{l_col} {op} {r_tab}.{r_col}")
+                        self.check_failed_cases.append((condition, "failed on check column(left)", self.node.statement, l_tab_obj.name2col))
                         continue
                 else:
-                    # print(f"table check fail: {l_tab} in {l_tab}.{l_col} {op} {r_tab}.{r_col}")
-                    # self.check_failed_cases.append((condition, "failed on check table", self.node.statement, self.name2tab))
+                    self.unfound_tables.append(l_tab)  # record unfound tables
+                    print(f"table check fail: {l_tab} in {l_tab}.{l_col} {op} {r_tab}.{r_col}")
+                    self.check_failed_cases.append((condition, "failed on check table(left)", self.node.statement, self.name2tab))
                     continue
 
                 is_exist, r_tab = self._check_table_definition(r_tab)
@@ -597,12 +621,13 @@ class QueryParser:
                         r_col_obj = r_tab_obj.name2col[r_col]
                     else:
                         # r_col_obj = self._insert_missing_column(l_col, l_tab_obj)
-                        # print(f"column check fail: {r_col} in {l_tab}.{l_col} {op} {r_tab}.{r_col}")
-                        # self.check_failed_cases.append((condition, "failed on check column", self.node.statement, r_tab_obj.name2col))
+                        print(f"column check fail: {r_col} in {l_tab}.{l_col} {op} {r_tab}.{r_col}")
+                        self.check_failed_cases.append((condition, "failed on check column(right)", self.node.statement, r_tab_obj.name2col))
                         continue
                 else:
-                    # print(f"table check fail: {r_tab} in {l_tab}.{l_col} {op} {r_tab}.{r_col}")
-                    # self.check_failed_cases.append((condition, "failed on check table", self.node.statement, self.name2tab))
+                    self.unfound_tables.append(r_tab)  # record unfound tables
+                    print(f"table check fail: {r_tab} in {l_tab}.{l_col} {op} {r_tab}.{r_col}")
+                    self.check_failed_cases.append((condition, "failed on check table(right)", self.node.statement, self.name2tab))
                     continue
 
                 if (l_tab, r_tab) in name_pair2obj_pair:
@@ -615,7 +640,7 @@ class QueryParser:
                     binaryjoin_obj = self._construct_binaryjoin_object(l_tab_obj, l_col_obj, r_tab_obj, r_col_obj, op)
                     binaryjoin_list.append(binaryjoin_obj)
                     name_pair2obj_pair[(l_tab, r_tab)] = binaryjoin_obj
-                # print(f"table and column check succ: {l_tab}.{l_col} {op} {r_tab}.{r_col}")
+                print(f"table and column check succ: {l_tab}.{l_col} {op} {r_tab}.{r_col}")
         # """
 
         return binaryjoin_list
@@ -628,6 +653,15 @@ class QueryParser:
         return limit_cols_join + limit_cols_where
 
     def _find_table_in_children(self, alias, column):
+
+        def __is_in_columns(column):
+            for c in metadata.columns:
+                if '.' in c:
+                    tab_name, col_name = c.rsplit(".", 1)
+                    if column == col_name:
+                        return (True, tab_name)
+            return (False, alias)
+
         alias2query = dict()
         for d in self.node.sub_query_list:
             alias2query |= d
@@ -639,6 +673,15 @@ class QueryParser:
             return (col2tab[column], column) if column in col2tab else (alias, column)
         elif len(metadata.tables) == 1:
             return (metadata.tables[0], column)
+        elif metadata.columns:
+            is_find_table, table_name = __is_in_columns(column)
+            if is_find_table:
+                return table_name, column
+        if metadata.tables:
+            for table_name in metadata.tables:
+                if table_name in self.name2tab:
+                    if column in self.name2tab[table_name].name2col:
+                        return table_name, column
         return alias, column
 
     def _find_table_in_parent(self, alias_or_name, parent):
@@ -650,7 +693,8 @@ class QueryParser:
         def __has_matched_subquery(alias):
             alias_list = list()
             for d in self.node.sub_query_list:
-                alias_list += d.keys()
+                if d is not None:
+                    alias_list += d.keys()
             return True if alias in alias_list else False
 
         limit_cols = self.node.limit_cols
@@ -737,22 +781,26 @@ class QueryParser:
         normal_conditions = list()
 
         try:
-            alias2table = self._get_mutual_map(metadata.tables_aliases)
-        except:
-            alias2table = {k: v for k, v in self.visitor.get_tables(self.node.token).items() if k is not None}
-            alias2table = self._get_mutual_map(alias2table)
-        finally:
-            if not alias2table:
+            try:
+                alias2table = self._get_mutual_map(metadata.tables_aliases)
+            except Exception as e:
+                alias2table = self._get_mutual_map(metadata.tables_aliases)
+            except:
                 alias2table = {k: v for k, v in self.visitor.get_tables(self.node.token).items() if k is not None}
                 alias2table = self._get_mutual_map(alias2table)
-            self.node.alias2table = alias2table
+            finally:
+                try:
+                    self.node.alias2table = alias2table
+                except:
+                    pass
+        except:
+            print("get alias2table error")
 
-        if self.single_query and not alias2table:
+        if self.single_query and not self.node.alias2table:
             try:
                 alias2table = self._get_alias2table(self.node.statement)
                 self.node.alias2table = alias2table
             except:
-                # print("alias2table getting error")
                 pass
 
         try:
@@ -762,8 +810,6 @@ class QueryParser:
 
         for condition in condition_list:
             if "!=" in condition:
-                # op = "NotEq"
-                # left, right = self._get_left_right(condition, "!=", alias2table, limit_cols)
                 continue
             elif "<=" in condition:
                 op = "LtEq"
@@ -772,8 +818,6 @@ class QueryParser:
                 op = "GtEq"
                 left, right = self._get_left_right(condition, ">=")
             elif "<>" in condition:
-                # op = "NotEq"
-                # left, right = self._get_left_right(condition, "<>", alias2table, limit_cols)
                 continue
             elif "<" in condition:
                 op = "Lt"
@@ -792,7 +836,7 @@ class QueryParser:
             if self.node.limit_cols:
                 if left not in self.node.limit_cols or right not in self.node.limit_cols:
                     continue
-            # self.binary_join_list.append((left, op, right))
+
             normal_conditions.append((left, op, right))
 
         return normal_conditions
@@ -852,7 +896,7 @@ class QueryParser:
             tokens = self._get_tokens(stmt=stmt)
         except Exception as e:
             tokens = parse(stmt)[0].tokens
-            raise e
+            # raise e
         try:
             metadata = Parser(stmt)
         except:
@@ -865,7 +909,12 @@ class QueryParser:
         except:
             pass
         else:
-            self.node.tables = metadata.tables
+            try:
+                self.node.tables = metadata.tables
+            except Exception as e:
+                self.node.tables = metadata.tables
+            except:
+                print("get tables from metadata error!")
 
         condition_list = self._extract_conditions(tokens)
 
@@ -956,10 +1005,18 @@ class QueryParser:
             return left, op, right
 
         def _match_condition(condition, subquery, outter_alias2table):
+            if condition is None:
+                return
             left, op, right = condition
             subquery_alias = subquery.value.rsplit(' ', 1)[1]
-            left_table, left_column = left.rsplit('.', 1)
-            right_table, right_column = right.rsplit('.', 1)
+            if '.' in left:
+                left_table, left_column = left.rsplit('.', 1)
+            else:
+                return
+            if '.' in right:
+                right_table, right_column = right.rsplit('.', 1)
+            else:
+                return
             if left_table == subquery_alias:
                 left_table = self._find_table_in_subquery(left_column, subquery.value)
                 if right_table in outter_alias2table:
@@ -1027,6 +1084,20 @@ class QueryParser:
 
         return stmt if left_parenthesis_num != right_parenthesis_num else stmt[left_pos:right_pos]
 
+    def _get_subqueries(self):
+
+        def __find_alias_in_parent(token):
+            if token.parent:
+                return token.parent.get_alias() if token.parent.get_alias() else __find_alias_in_parent(token.parent)
+
+        if not self.node.children:
+            return
+        d = dict()
+        for child in self.node.children:
+            alias = __find_alias_in_parent(child.token)
+            d[alias] = child.statement
+        return d
+
     def _parse_single_query_statement(self, stmt):
         """Parse single select statement."""
         self.single_query = True
@@ -1045,7 +1116,13 @@ class QueryParser:
             if metadata.subqueries:
                 self.node.sub_query_list.append(metadata.subqueries)
         except:
-            pass
+            try:
+                if metadata.subqueries:
+                    self.node.sub_query_list.append(metadata.subqueries)
+            except:
+                pass
+        # if not self.node.sub_query_list:
+        self.node.sub_query_list.append(self._get_subqueries())
         # print(self.node.sub_query_list)
 
         # TODO: get outter alias2table from every subqueries.
@@ -1183,9 +1260,10 @@ class QueryParser:
 
         query_object = self._construct_query_object()
 
-        # check_failed_cases = self.check_failed_cases
+        check_failed_cases = self.check_failed_cases
 
-        return query_object
+        # return query_object, self.unfound_tables
+        return query_object, check_failed_cases
 
 
 if __name__ == "__main__":

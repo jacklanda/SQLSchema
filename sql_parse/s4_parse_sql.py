@@ -79,7 +79,7 @@ from utils import (
 
 INPUT_FOLDER = os.path.join(os.getcwd(), "data/s3_sql_files_crawled_all_vms")
 OUTPUT_FOLDER = os.path.join(os.getcwd(), "data/s4_sql_files_parsed")
-STATEMENT_SIZE_LIMIT = 50000
+STATEMENT_SIZE_LIMIT = 10000
 
 TOKEN_NOTNULL = "[NOTNULL]"
 # Note: The `UNIQUE` constraint ensures that all values in a column are different,
@@ -1551,8 +1551,9 @@ def parse_repo_files(repo_obj):
     file_obj_queue = deque()
     repo_memo = dict()
     repo_query_list = list()
-    # all_check_failed_cases = list()
+    all_check_failed_cases = list()
     multi_name2tab = dict()
+    unfound_tables = list()
     for stage in ParseStage:
         print('=' * 30, stage, '=' * 30)
         for fp in fpath_list:
@@ -1572,7 +1573,6 @@ def parse_repo_files(repo_obj):
                         stmts = ''.join(lines)
                         stmts = convert_camel_to_underscore(stmts)
                         file_obj.parse(stmts, stage)
-                        # pass
                     except Exception as e:
                         print("first stage failed | ", e)
                     finally:
@@ -1642,26 +1642,28 @@ def parse_repo_files(repo_obj):
             elif stage == ParseStage.query:
                 # handle join-query statement
                 # continue
+                # fp = "/datadrive/yang/exp/data/s3_sql_files_crawled_all_vms/5385539387392031809.sql"
                 stmts = query_stmt_split(fp)
                 with Pipeline(file_obj_queue) as file_obj:
                     try:
                         for s in stmts:
                             parser = QueryParser(file_obj.repo_name2tab, is_debug=False)
                             try:
-                                # query_obj, check_failed_cases = parser.parse(s)
-                                query_obj = parser.parse(s)
+                                query_obj, check_failed_cases = parser.parse(s)
+                                # query_obj, unfound_list = parser.parse(s)
                                 if query_obj:
                                     repo_query_list.append(query_obj)
                                     COUNTER_QUERY.add()
-                                # if check_failed_cases:
-                                    # all_check_failed_cases.append((fp, check_failed_cases))
+                                # unfound_tables += unfound_list
+                                if check_failed_cases:
+                                    all_check_failed_cases.append((fp, check_failed_cases))
                             except:
                                 COUNTER_QUERY_EXCEPT.add()
                                 continue
                     except Exception as e:
                         print("fifth stage failed | ", e)
         repo_obj.parsed_file_list = list(file_obj_queue)
-        # repo_obj.check_failed_cases = all_check_failed_cases
+        repo_obj.check_failed_cases = all_check_failed_cases
         # repo_obj.memo = repo_memo
         repo_obj.join_query_list = repo_query_list
         print(repo_query_list)
@@ -1670,6 +1672,8 @@ def parse_repo_files(repo_obj):
         # print(f"succ: {COUNTER.num - COUNTER_EXCEPT.num}, except: {COUNTER_EXCEPT.num}")
 
     print("repo parse done")
+    # self.repo_obj.repo_url
+    repo_obj.unfound_tables = unfound_tables
     global TOTAL_TABLE_NUM
     global REPEAT_NUM
     global NOT_REPEAT_NUM
@@ -1749,7 +1753,7 @@ class Pipeline:
 class Timeout:
     """Timeout class for timing and avoiding long-time string processing."""
 
-    def __init__(self, seconds=10, error_message="Timeout"):
+    def __init__(self, seconds=1, error_message="Timeout"):
         self.seconds = seconds
         self.error_message = error_message
 
