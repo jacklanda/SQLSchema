@@ -281,19 +281,40 @@ def fmt_str(s):
 
 def rm_kw(s):
     """Remove keywords like asc, desc after cols"""
-    return s.replace(" asc", "").replace(" desc", "").strip()
+    return s.replace(" asc", "").replace(" desc", "").replace(" ASC", "").replace(" DESC", "").strip()
 
 
 def clean_stmt(stmt):
     """Remove useless keyword in SQL, e.g. COMMENT"""
     # remove COMMENT ...
-    pattern = "(\s+comment\s*[\s|=]?\s*['|\"\`].*?['|\"\`])[,|\n|;]"
-    result = re.findall(pattern, stmt, re.IGNORECASE)
+    # pattern = "(\s+comment\s*[\s|=]?\s*['|\"\`].*?['|\"\`])[,|\n|;]"
+    # result = re.findall(pattern, stmt, re.IGNORECASE)
+    pat = re.compile("(\s+comment\s*[\s|=]?\s*['|\"\`].*?['|\"\`])[,|\n|;]", re.IGNORECASE)
+    result = pat.findall(stmt)
     for item in result:
         stmt = stmt.replace(item, "")
     # remove type size with parentheses
-    stmt = re.sub("\(\d+[,\s*\d*]*\)", "", stmt)
+    pat = re.compile("\(\d+[,\s*\d*]*\)", re.IGNORECASE)
+    stmt = pat.sub("", stmt)
+    # stmt = re.sub("\(\d+[,\s*\d*]*\)", "", stmt, re.IGNORECASE)
     return stmt
+
+
+def split_string(s, sep, maxsplit=1, get_first=False):
+    s_raw, s_lower, sep = s, s.lower(), sep.lower()
+    if sep in s_lower:
+        if not get_first:
+            bgn_idx = s_lower.find(sep)
+            if bgn_idx == -1:
+                print("split error!")
+            return s_raw[int(bgn_idx + len(sep)):] if bgn_idx != -1 else s_lower.split(sep, maxsplit)[1]
+        else:
+            end_idx = s_lower.find(sep)
+            if end_idx == -1:
+                print("split error!")
+            return s_raw[:int(end_idx)] if end_idx != -1 else s_lower.split(sep, maxsplit)[0]
+    else:
+        return s_raw
 
 
 def convert_camel_to_underscore(s):
@@ -338,8 +359,10 @@ def query_stmt_split(fpath):
                 stmt = ""
                 continue
             stmt += line
+        """
         if stmt not in split_by_newline:
             split_by_newline.append(stmt)
+        """
         for stmt in split_by_newline:
             sub_stmts = stmt.split(';')
             try:
@@ -347,7 +370,6 @@ def query_stmt_split(fpath):
                     split_by_semicolon += [sqlparse.format(s.strip(), strip_comments=True)
                                            for s in sub_stmts
                                            if s != '\n'
-                                           # and s.lower().count("select ") == 1
                                            and "select " in s.lower()
                                            and "from " in s.lower()
                                            and (("join " in s.lower())
@@ -357,8 +379,8 @@ def query_stmt_split(fpath):
 
         stmts = [' '.join(s.split()) for s in split_by_semicolon]
 
-    return [convert_camel_to_underscore(s) for s in stmts if any(op in s for op in BINARY_OP)]
-    # return [s for s in stmts if any(op in s for op in BINARY_OP)]
+    # return [convert_camel_to_underscore(s) for s in stmts if any(op in s for op in BINARY_OP)]
+    return [s for s in stmts if any(op in s for op in BINARY_OP)]
 
 
 def calc_col_cov(table_lhs, table_rhs):

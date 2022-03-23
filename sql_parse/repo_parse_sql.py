@@ -242,7 +242,7 @@ def merge_pkl_files(dir_name):
     for pkl_file in pkl_files:
         partial_list = pickle.load(open(pkl_file, "rb"))
         merge_list += partial_list
-    pickle.dump(open(dir_name + '/' + dir_name.rsplit('/', 1)[-1] + ".pkl", "wb"))
+    pickle.dump(merge_list, open(dir_name + '/' + dir_name.rsplit('/', 1)[-1] + ".pkl", "wb"))
 
 
 def aggregate(fpath="data/s2_sql_file_list.txt", max_repo_limit=9999999):
@@ -258,15 +258,6 @@ def aggregate(fpath="data/s2_sql_file_list.txt", max_repo_limit=9999999):
     -------
     - repo_list: list[Repository]
     """
-    # pickle_fpath = "data/samples/fpath_list_11k_2022_01_18_02:15:15.pkl"
-    # pickle_fpath = "data/samples/fpath_list_100_2022_01_23_03:36:27.pkl"
-    # pickle.dump(sample(repo_list, 100), open(pickle_fpath, "wb"))
-    # samples = sample(pickle.load(open(pickle_fpath, "rb")), 100)
-    # pickle.dump(samples, open(f"data/samples/fpath_list_100_{time.strftime('%Y_%m_%d_%H:%M:%S')}.pkl", "wb"))
-    # samples = pickle.load(open(pickle_fpath, "rb"))
-    # return samples
-    # return pickle.load(open(pickle_fpath, "rb"))
-
     repo_list = list()
     """
     repo_dict = dict()
@@ -293,24 +284,24 @@ def aggregate(fpath="data/s2_sql_file_list.txt", max_repo_limit=9999999):
     user_nums = list()
     repo_dict = pickle.load(open("data/samples/repo_dict.pkl", "rb"))
     for repo_url, file_set in repo_dict.items():
-        if repo_url == "https://github.com/microsoft/sqllinuxlabs":
+        if repo_url == "https://github.com/SamuelVeloce/gps":
             repo_obj = Repository(repo_url, file_set)
             repo_list.append(repo_obj)
             break
-            # repo in the same user
-            repo_user = repo_url.rsplit('/', 1)[0].rsplit('/', 1)[1]
-            if len(user_nums) == 1000 and repo_user not in user_nums:
-                continue
-            elif len(user_nums) == 1000 and repo_user in user_nums:
-                repo_obj = Repository(repo_url, list(file_set))
-                repo_list.append(repo_obj)
-            elif len(user_nums) != 1000 and repo_user not in user_nums:
-                user_nums.append(repo_user)
-                repo_obj = Repository(repo_url, list(file_set))
-                repo_list.append(repo_obj)
-            elif len(user_nums) != 1000 and repo_user in user_nums:
-                repo_obj = Repository(repo_url, list(file_set))
-                repo_list.append(repo_obj)
+        # repo in the same user
+        repo_user = repo_url.rsplit('/', 1)[0].rsplit('/', 1)[1]
+        if len(user_nums) == 1000 and repo_user not in user_nums:
+            continue
+        elif len(user_nums) == 1000 and repo_user in user_nums:
+            repo_obj = Repository(repo_url, list(file_set))
+            repo_list.append(repo_obj)
+        elif len(user_nums) != 1000 and repo_user not in user_nums:
+            user_nums.append(repo_user)
+            repo_obj = Repository(repo_url, list(file_set))
+            repo_list.append(repo_obj)
+        elif len(user_nums) != 1000 and repo_user in user_nums:
+            repo_obj = Repository(repo_url, list(file_set))
+            repo_list.append(repo_obj)
         repo_obj = Repository(repo_url, list(file_set))
         repo_list.append(repo_obj)
     """
@@ -341,20 +332,10 @@ if __name__ == "__main__":
 
     if PARALLEL:
         pool = Pool(32)
-        """
-       for i, repo in enumerate(repo_list):
-            result_obj = pool.apply_async(parse_repo_files, (repo,))
-            result_obj_list.append(result_obj)
-            results = (result_obj.get() for result_obj in result_obj_list)
-            parsed_repo_list = [r for r in results if r is not None]
-        dump_repo_list(parsed_repo_list, pkl_dir, pkl_fname_base + ".pkl")
-        exit()
-        """
-        # """
         for i, repo in enumerate(repo_list):
             result_obj = pool.apply_async(parse_repo_files, (repo,))
             result_obj_list.append(result_obj)
-            if i % 220000 == 0:
+            if i % 110000 == 0:
                 batch_num += 1
                 results = (result_obj.get() for result_obj in result_obj_list)
                 parsed_repo_list = [r for r in results if r is not None]
@@ -367,7 +348,6 @@ if __name__ == "__main__":
                 dump_repo_list(parsed_repo_list, pkl_dir, pkl_fname_base + '_' + str(batch_num) + ".pkl")
                 result_obj_list.clear()
         merge_pkl_files(pkl_dir)
-        # """
     else:
         for i, repo in enumerate(repo_list):
             print("=" * 30, f'repo:{i+1}', repo.repo_url, "=" * 30)

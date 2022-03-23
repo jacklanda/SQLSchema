@@ -44,17 +44,36 @@ def calc(repo_list):
     print(f"found table in other repo: {in_other_repo_table_num/total_table_num}({in_other_repo_table_num}/{total_table_num})")
 
 
+def calc_failed_cases_num(repo_list):
+    table_failed_num, column_failed_num = 0, 0
+    total_failed_cases_num = 0
+    for repo in repo_list:
+        for fp, fp_case in repo.check_failed_cases:
+            total_failed_cases_num += len(fp_case)
+            for case in fp_case:
+                if "failed on check table" in case[1]:
+                    table_failed_num += 1
+                elif "failed on check column" in case[1]:
+                    column_failed_num += 1
+    print("total failed cases num:", total_failed_cases_num)
+    print("total table check failed cases num:", table_failed_num)
+    print("total column check failed cases num:", column_failed_num)
+
+
 if __name__ == "__main__":
-    # fpath = "data/s4_sql_files_parsed/s4_parsed_sql_repo_list_2022_03_08_02:47:48/s4_parsed_sql_repo_list_2022_03_08_02:47:48_2.pkl"
+    # fpath = "data/s4_sql_files_parsed/s4_parsed_sql_repo_list_2022_03_15_14:14:47/s4_parsed_sql_repo_list_2022_03_15_14:14:47.pkl"
     # repo_list = load(open(fpath, "rb"))
     # repo_list = [r for r in repo_list if r.unfound_tables]
     # calc(repo_list)
     # exit()
 
-    fpath = "data/s4_sql_files_parsed/s4_parsed_sql_repo_list_2022_03_11_08:17:08/s4_parsed_sql_repo_list_2022_03_11_08:17:08_2.pkl"
+    fpath = "data/s4_sql_files_parsed/s4_parsed_sql_repo_list_2022_03_21_07:12:24/s4_parsed_sql_repo_list_2022_03_21_07:12:24.pkl"
     repo_list = load(open(fpath, "rb"))
     repo_list = [r for r in repo_list if r.check_failed_cases]
-    samples = sample(repo_list, 800)
+    # calc_failed_cases_num(repo_list)
+    # exit()
+
+    samples = sample(repo_list, 600)
     check_table_failed_num, check_column_failed_num = 0, 0
     for repo in samples:
         fp, fp_case = choice(repo.check_failed_cases)
