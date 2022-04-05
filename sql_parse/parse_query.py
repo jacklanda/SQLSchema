@@ -9,6 +9,7 @@ import glob
 import logging
 from random import sample
 from pprint import pprint
+from functools import lru_cache
 
 from Levenshtein import distance
 from sql_metadata import Parser
@@ -315,8 +316,8 @@ class TokenVisitor:
     def _get_tables(self, token, i=None):
         i = token if i is None else i
         flag = False
-        for i in getattr(i, 'tokens', []):
-            if isinstance(i, Token) and i.value.lower() == 'from' or "join" in i.value.lower():
+        for i in getattr(i, "tokens", []):
+            if isinstance(i, Token) and i.value.lower() == "from" or "join" in i.value.lower():
                 flag = True
             elif isinstance(i, (Identifier, IdentifierList)) and flag:
                 flag = False
@@ -334,7 +335,7 @@ class TokenVisitor:
                     alias = fmt_str(t.get_alias())
                     tname = fmt_str(t.get_real_name())
                     res[alias] = tname
-            """
+            # """
             elif isinstance(t, IdentifierList):
                 if ',' in t.value:
                     table_pair_list = [t.strip() for t in t.value.split(',')]
@@ -350,7 +351,9 @@ class TokenVisitor:
                         else:
                             if pair not in res:
                                 res[pair] = pair
-            """
+            # """
+            elif "tokens" in dir(t):
+                self._get_tables_patch(t, res)
 
 
 class QueryParser:
@@ -368,8 +371,11 @@ class QueryParser:
         self.limit_cols_level = list()
         self.binary_join_list = list()
         self.condition_list = list()
+        self.raw_condition_list = list()
         self.name2tab = name2tab
-        self.lower2name2tab = {k.lower(): (k, v) for k, v in self.name2tab.items()} | {k.lower().rsplit('.', 1)[-1]: (k, v) for k, v in self.name2tab.items() if '.' in k}
+        # self.user_name2tab = user_name2tab
+        # self.lower2name2tab = {k.lower(): (k, v) for k, v in self.name2tab.items()} | {k.lower().rsplit('.', 1)[-1]: (k, v) for k, v in self.name2tab.items() if '.' in k}
+        # self.lower2name2tab = {k.lower(): (k, v) for k, v in self.name2tab.items()}
         self.only_two_join_tables = False
         self.single_query = False
         self.check_failed_cases = list()  # [(failed_condition, statement, dictionary)]
@@ -450,9 +456,15 @@ class QueryParser:
 
             return l
 
-        def __get_map():
+        def __get_map(option):
             d = dict()
-            for name, tab_obj in self.name2tab.items():
+            m = self.name2tab
+            if option == "name2tab":
+                m = self.name2tab
+            elif option == "user_name2tab":
+                # m = self.user_name2tab
+                pass
+            for name, tab_obj in m.items():
                 if '.' in name:
                     last_token = name.rsplit('.', 1)[1]
                     d[last_token.lower()] = (name, tab_obj)
@@ -464,23 +476,31 @@ class QueryParser:
             return True if col_name.lower() in lower2name2col else False
 
         possible_items = __normalize(table_name) if '.' not in table_name else __normalize(table_name) + __normalize(table_name.rsplit('.', 1)[1])
-        last_token2name_tab = __get_map()
         if self.name2tab:
+            last_token2name_tab = __get_map("name2tab")
+            # last_token2name_tab_user = __get_map("user_name2tab")
             # likely_strs = self._get_likely_strs(table_name, self.name2tab)
             # print(f"table_name: {table_name}'s most likely match result: {likely_strs}")
             for item in possible_items:
                 # if item in self.name2tab:
                 item = item.lower()
                 if item in last_token2name_tab:
-                    # only for production
+                    # only for production env
                     # tab_obj = last_token2name_tab[item][1]
                     # if __has_column(tab_obj, col_name):
                     return (True, last_token2name_tab[item][0])
                 if item in self.name2tab:
-                    # only for production
+                    # only for production env
                     # tab_obj = self.name2tab[item]
                     # if __has_column(tab_obj, col_name):
                     return (True, item)
+                """
+                if item in last_token2name_tab_user:
+                    # only for production
+                    # tab_obj = last_token2name_tab[item][1]
+                    # if __has_column(tab_obj, col_name):
+                    return (True, last_token2name_tab_user[item][0])
+                """
         else:
             # print("empty name2tab")
             pass
@@ -510,29 +530,43 @@ class QueryParser:
         return (False, column_name)
 
     def _insert_missing_table(self, tname):
-        from s4_parse_sql import Table
+        from cls_def import Table
         table_obj = Table(tname, "0")
         self.name2tab[tname] = table_obj
         return table_obj
 
     def _insert_missing_column(self, c_name, t_obj):
-        from s4_parse_sql import Column
+        from cls_def import Column
         c_obj = Column(c_name)
         t_obj.name2col[c_name] = c_obj
         return c_obj
 
     def _get_table_column_obj(self, column_name):
+        for t_name, t_obj in self.name2tab.items():
+            lower2name2col = {k.lower(): (k, v) for k, v in t_obj.name2col.items()}
+            if column_name.lower() in lower2name2col:
+                c_obj = lower2name2col[column_name.lower()][1]
+                return t_obj, c_obj
+        """
+        for t_name, t_obj in self.user_name2tab.items():
+            lower2name2col = {k.lower(): (k, v) for k, v in t_obj.name2col.items()}
+            if column_name.lower() in lower2name2col:
+                c_obj = lower2name2col[column_name.lower()][1]
+                return t_obj, c_obj
+        """
+
         tables = self.node.tables
         if tables is None or not tables:
             return None, None
         for t_name in tables:
-            # lower2name2tab = {k.lower(): (k, v) for k, v in self.name2tab.items()}
-            if t_name.lower() in self.lower2name2tab:
-                t_obj = self.lower2name2tab[t_name.lower()][1]
+            lower2name2tab = {k.lower(): (k, v) for k, v in self.name2tab.items()}
+            if t_name.lower() in lower2name2tab:
+                t_obj = lower2name2tab[t_name.lower()][1]
                 lower2name2col = {k.lower(): (k, v) for k, v in t_obj.name2col.items()}
                 if column_name.lower() in lower2name2col:
                     c_obj = lower2name2col[column_name.lower()][1]
                     return t_obj, c_obj
+
         return None, None
 
     def _construct_binaryjoin_object(self, l_tab_obj, l_col_obj, r_tab_obj, r_col_obj, op):
@@ -564,7 +598,7 @@ class QueryParser:
                 left, op, right = condition
                 if left.isdigit() or right.isdigit():
                     continue
-                print(f"input condition: {left} {op} {right}")
+                # print(f"input condition: {left} {op} {right}")
                 if '.' in left:
                     l_tab, l_col = left.rsplit('.', 1)
 
@@ -572,13 +606,17 @@ class QueryParser:
                     # l_tab_obj = self.name2tab[l_tab] if is_exist else self._insert_missing_table(l_tab)
                     # is_exist = True
                     if is_exist:
-                        l_tab_obj = self.name2tab[l_tab]
+                        try:
+                            l_tab_obj = self.name2tab[l_tab]
+                        except:
+                            # l_tab_obj = self.user_name2tab[l_tab]
+                            continue
                         is_exist, l_col = self._check_column_definition(l_tab_obj, l_col)
                         if is_exist:
                             l_col_obj = l_tab_obj.name2col[l_col]
                         else:
                             # l_col_obj = self._insert_missing_column(l_col, l_tab_obj)
-                            print(f"column check fail: {l_col} in {left} {op} {right}")
+                            # print(f"column check fail: {l_col} in {left} {op} {right}")
                             self.check_failed_cases.append(((left, op, right), "failed on check column(left)", self.node.statement, l_tab_obj.name2col))
                             continue
                         try:
@@ -588,7 +626,7 @@ class QueryParser:
                             pass
                     else:
                         self.unfound_tables.append(l_tab)  # record unfound tables
-                        print(f"table check fail: {l_tab} in {left} {op} {right}")
+                        # print(f"table check fail: {l_tab} in {left} {op} {right}")
                         self.check_failed_cases.append(((left, op, right), "failed on check table(left)", self.node.statement, self.name2tab))
                         continue
                 else:
@@ -596,11 +634,11 @@ class QueryParser:
                         continue
                     l_tab_obj, l_col_obj = self._get_table_column_obj(left)
                     if l_tab_obj is None:
-                        print(f"table check fail: NotKnownTable in {left} {op} {right}")
+                        # print(f"table check fail: NotKnownTable in {left} {op} {right}")
                         self.check_failed_cases.append(((left, op, right), "failed on check table(left)", self.node.statement, self.name2tab))
                         continue
                     if l_col_obj is None:
-                        print(f"column check fail: {left} in {left} {op} {right}")
+                        # print(f"column check fail: {left} in {left} {op} {right}")
                         self.check_failed_cases.append(((left, op, right), "failed on check column(left)", self.node.statement, l_tab_obj.name2col))
                         continue
                     else:
@@ -613,20 +651,24 @@ class QueryParser:
                     # r_tab_obj = self.name2tab[r_tab] if is_exist else self._insert_missing_table(r_tab)
                     # is_exist = True
                     if is_exist:
-                        r_tab_obj = self.name2tab[r_tab]
+                        try:
+                            r_tab_obj = self.name2tab[r_tab]
+                        except:
+                            # r_tab_obj = self.user_name2tab[r_tab]
+                            continue
                         is_exist, r_col = self._check_column_definition(r_tab_obj, r_col)
                         if is_exist:
                             r_col_obj = r_tab_obj.name2col[r_col]
                         else:
                             # r_col_obj = self._insert_missing_column(r_col, r_tab_obj)
-                            print(f"column check fail: {r_col} in {left} {op} {right}")
+                            # print(f"column check fail: {r_col} in {left} {op} {right}")
                             self.check_failed_cases.append(((left, op, right), "failed on check column(right)", self.node.statement, r_tab_obj.name2col))
                             continue
                         self.node.tables = self.node.tables.remove(r_tab_obj.tab_name) \
                             if self.node and self.node.tables and r_tab_obj.tab_name in self.node.tables else self.node.tables
                     else:
                         self.unfound_tables.append(r_tab)  # record unfound tables
-                        print(f"table check fail: {r_tab} in {left} {op} {right}")
+                        # print(f"table check fail: {r_tab} in {left} {op} {right}")
                         self.check_failed_cases.append(((left, op, right), "failed on check table(right)", self.node.statement, self.name2tab))
                         continue
                 else:
@@ -634,11 +676,11 @@ class QueryParser:
                         continue
                     r_tab_obj, r_col_obj = self._get_table_column_obj(right)
                     if r_tab_obj is None:
-                        print(f"table check fail: NotKnownTable in {left} {op} {right}")
+                        # print(f"table check fail: NotKnownTable in {left} {op} {right}")
                         self.check_failed_cases.append(((left, op, right), "failed on check table(right)", self.node.statement, self.name2tab))
                         continue
                     if r_col_obj is None:
-                        print(f"column check fail: {right} in {left} {op} {right}")
+                        # print(f"column check fail: {right} in {left} {op} {right}")
                         self.check_failed_cases.append(((left, op, right), "failed on check column(right)", self.node.statement, r_tab_obj.name2col))
                         continue
                     else:
@@ -655,7 +697,7 @@ class QueryParser:
                     binaryjoin_obj = self._construct_binaryjoin_object(l_tab_obj, l_col_obj, r_tab_obj, r_col_obj, op)
                     binaryjoin_list.append(binaryjoin_obj)
                     name_pair2obj_pair[(l_tab, r_tab)] = binaryjoin_obj
-                print(f"table and column check succ: {l_tab}.{l_col} {op} {r_tab}.{r_col}")
+                # print(f"table and column check succ: {l_tab}.{l_col} {op} {r_tab}.{r_col}")
         # """
         else:
             for condition in condition_list:
@@ -665,24 +707,28 @@ class QueryParser:
                     continue
                 if l_tab.isdigit() or l_col.isdigit() or r_tab.isdigit() or r_col.isdigit():
                     continue
-                print(f"input condition: {l_tab}.{l_col} {op} {r_tab}.{r_col}")
+                # print(f"input condition: {l_tab}.{l_col} {op} {r_tab}.{r_col}")
 
                 is_exist, l_tab = self._check_table_definition(l_tab, l_col)
                 # l_tab_obj = self.name2tab[l_tab] if is_exist else self._insert_missing_table(l_tab)
                 # is_exist = True
                 if is_exist:
-                    l_tab_obj = self.name2tab[l_tab]
+                    try:
+                        l_tab_obj = self.name2tab[l_tab]
+                    except:
+                        # l_tab_obj = self.user_name2tab[l_tab]
+                        continue
                     is_exist, l_col = self._check_column_definition(l_tab_obj, l_col)
                     if is_exist:
                         l_col_obj = l_tab_obj.name2col[l_col]
                     else:
                         # l_col_obj = self._insert_missing_column(l_col, l_tab_obj)
-                        print(f"column check fail: {l_col} in {l_tab}.{l_col} {op} {r_tab}.{r_col}")
+                        # print(f"column check fail: {l_col} in {l_tab}.{l_col} {op} {r_tab}.{r_col}")
                         self.check_failed_cases.append((condition, "failed on check column(left)", self.node.statement, l_tab_obj.name2col))
                         continue
                 else:
                     self.unfound_tables.append(l_tab)  # record unfound tables
-                    print(f"table check fail: {l_tab} in {l_tab}.{l_col} {op} {r_tab}.{r_col}")
+                    # print(f"table check fail: {l_tab} in {l_tab}.{l_col} {op} {r_tab}.{r_col}")
                     self.check_failed_cases.append((condition, "failed on check table(left)", self.node.statement, self.name2tab))
                     continue
 
@@ -690,18 +736,22 @@ class QueryParser:
                 # r_tab_obj = self.name2tab[r_tab] if is_exist else self._insert_missing_table(r_tab)
                 # is_exist = True
                 if is_exist:
-                    r_tab_obj = self.name2tab[r_tab]
+                    try:
+                        r_tab_obj = self.name2tab[r_tab]
+                    except:
+                        # r_tab_obj = self.user_name2tab[r_tab]
+                        continue
                     is_exist, r_col = self._check_column_definition(r_tab_obj, r_col)
                     if is_exist:
                         r_col_obj = r_tab_obj.name2col[r_col]
                     else:
                         # r_col_obj = self._insert_missing_column(r_col, r_tab_obj)
-                        print(f"column check fail: {r_col} in {l_tab}.{l_col} {op} {r_tab}.{r_col}")
+                        # print(f"column check fail: {r_col} in {l_tab}.{l_col} {op} {r_tab}.{r_col}")
                         self.check_failed_cases.append((condition, "failed on check column(right)", self.node.statement, r_tab_obj.name2col))
                         continue
                 else:
                     self.unfound_tables.append(r_tab)  # record unfound tables
-                    print(f"table check fail: {r_tab} in {l_tab}.{l_col} {op} {r_tab}.{r_col}")
+                    # print(f"table check fail: {r_tab} in {l_tab}.{l_col} {op} {r_tab}.{r_col}")
                     self.check_failed_cases.append((condition, "failed on check table(right)", self.node.statement, self.name2tab))
                     continue
 
@@ -715,7 +765,7 @@ class QueryParser:
                     binaryjoin_obj = self._construct_binaryjoin_object(l_tab_obj, l_col_obj, r_tab_obj, r_col_obj, op)
                     binaryjoin_list.append(binaryjoin_obj)
                     name_pair2obj_pair[(l_tab, r_tab)] = binaryjoin_obj
-                print(f"table and column check succ: {l_tab}.{l_col} {op} {r_tab}.{r_col}")
+                # print(f"table and column check succ: {l_tab}.{l_col} {op} {r_tab}.{r_col}")
         # """
 
         return binaryjoin_list
@@ -744,17 +794,16 @@ class QueryParser:
                 alias2query |= {k.lower(): v for k, v in d.items()}
         sub_query = alias2query[alias]
         metadata = Parser(sub_query)
-        # lower2name2tab = {k.lower(): (k, v) for k, v in self.name2tab.items()}
+        lower2name2tab = {k.lower(): (k, v) for k, v in self.name2tab.items()}
         if metadata.columns_aliases and column in metadata.columns_aliases:
             column = metadata.columns_aliases[column]
         if metadata.tables:
             for table_name in metadata.tables:
-                if table_name.lower() in self.lower2name2tab:
-                    t_obj = self.lower2name2tab[table_name.lower()][1]
+                if table_name.lower() in lower2name2tab:
+                    t_obj = lower2name2tab[table_name.lower()][1]
                     lower2name2col = {k.lower(): (k, v) for k, v in t_obj.name2col.items()}
                     if isinstance(column, str) and column.lower() in lower2name2col:
                         return t_obj.tab_name, lower2name2col[column.lower()][0]
-                        # print(f"type: {type(column)} => {column}")
                     else:
                         for c in column:
                             if c.lower() in lower2name2col:
@@ -818,19 +867,36 @@ class QueryParser:
             left = left_table.strip() + '.' + left_column.strip()
             if left not in self.node.limit_cols:
                 self.node.limit_cols.append(left)
-        elif self.only_two_join_tables and self.node.tables:
-            # lower2name2tab = {k.lower(): (k, v) for k, v in self.name2tab.items()} | {k.lower().rsplit('.', 1)[-1]: (k, v) for k, v in self.name2tab.items() if '.' in k}
+        else:
+            # elif self.only_two_join_tables and self.node.tables:
+            left_old = left
+            for t_name, t_obj in self.name2tab.items():
+                lower2name2col = {k.lower(): (k, v) for k, v in t_obj.name2col.items()}
+                if left.lower() in lower2name2col:
+                    left = t_obj.tab_name + '.' + left.strip()
+                    break
+            # iterate in user_name2tab
+            """
+            if left == left_old:
+                for t_name, t_obj in self.user_name2tab.items():
+                    lower2name2col = {k.lower(): (k, v) for k, v in t_obj.name2col.items()}
+                    if left.lower() in lower2name2col:
+                        left = t_obj.tab_name + '.' + left.strip()
+                        break
+            """
+            left = left if left != left_old else None
+            """
+            lower2name2tab = {k.lower(): (k, v) for k, v in self.name2tab.items()} | {k.lower().rsplit('.', 1)[-1]: (k, v) for k, v in self.name2tab.items() if '.' in k}
             for tname in self.node.tables:
-                if tname.lower() in self.lower2name2tab:
-                    table_obj = self.lower2name2tab[tname.lower()][1]
+                if tname.lower() in lower2name2tab:
+                    table_obj = lower2name2tab[tname.lower()][1]
                     lower2name2col = {k.lower(): (k, v) for k, v in table_obj.name2col.items()}
                     if left.lower() in lower2name2col:
                         left = table_obj.tab_name + '.' + left.strip()
                         break
-            if left not in self.node.limit_cols:
+            """
+            if left is not None and left not in self.node.limit_cols:
                 self.node.limit_cols.append(left)
-        else:
-            left = None
 
         if '.' in right:
             right_table, right_column = right.rsplit('.', 1)
@@ -857,19 +923,39 @@ class QueryParser:
             right = right_table.strip() + '.' + right_column.strip()
             if right not in self.node.limit_cols:
                 self.node.limit_cols.append(right)
-        elif self.only_two_join_tables and self.node.tables:
-            # lower2name2tab = {k.lower(): (k, v) for k, v in self.name2tab.items()} | {k.lower().rsplit('.', 1)[-1]: (k, v) for k, v in self.name2tab.items() if '.' in k}
+        else:
+            right_old = right
+            for t_name, t_obj in self.name2tab.items():
+                lower2name2col = {k.lower(): (k, v) for k, v in t_obj.name2col.items()}
+                if right.lower() in lower2name2col:
+                    right = t_obj.tab_name + '.' + right.strip()
+                    break
+            # iterate in user_name2tab
+            """
+            if right == right_old:
+                for t_name, t_obj in self.user_name2tab.items():
+                    lower2name2col = {k.lower(): (k, v) for k, v in t_obj.name2col.items()}
+                    if right.lower() in lower2name2col:
+                        right = t_obj.tab_name + '.' + right.strip()
+                        break
+            """
+            right = right if right != right_old else None
+            """
+            lower2name2tab = {k.lower(): (k, v) for k, v in self.name2tab.items()} | {k.lower().rsplit('.', 1)[-1]: (k, v) for k, v in self.name2tab.items() if '.' in k}
             for tname in self.node.tables:
-                if tname.lower() in self.lower2name2tab:
-                    table_obj = self.lower2name2tab[tname.lower()][1]
+                if tname.lower() in lower2name2tab:
+                    table_obj = lower2name2tab[tname.lower()][1]
                     lower2name2col = {k.lower(): (k, v) for k, v in table_obj.name2col.items()}
                     if right.lower() in lower2name2col:
                         right = table_obj.tab_name + '.' + right.strip()
                         break
             if right not in self.node.limit_cols:
                 self.node.limit_cols.append(right)
-        else:
-            right = None
+            else:
+                right = None
+            """
+            if right is not None and right not in self.node.limit_cols:
+                self.node.limit_cols.append(right)
         return left, right
 
     def _get_mutual_map(self, alias2table):
@@ -885,7 +971,7 @@ class QueryParser:
         for item in items:
             if " as " in item.lower():
                 # name, alias = item.split(" as ")
-                name, alias = re.split(" as | AS | As | aS", item)
+                name, alias = re.split(" as | AS | As | aS ", item)
                 a2t[alias.strip()] = name.strip()
             elif " " in item:
                 name, alias = item.rsplit(" ", 1)
@@ -986,7 +1072,7 @@ class QueryParser:
 
     def _get_tokens(self, token=None, stmt=None):
         tokens_size = 1
-        with Timeout(1):
+        with Timeout(10):
             while tokens_size == 1:
                 try:
                     tokens = parse(stmt)[0].tokens if stmt else token.tokens
@@ -998,32 +1084,44 @@ class QueryParser:
                     tokens_size = len(tokens)
             return tokens
 
+    def _exclude_clause(self, s):
+        s_lower = s.lower()
+        if ".\'" in s_lower or ".\"" in s_lower or "\'." in s_lower or "\"." in s_lower:
+            return True if "select " not in s_lower\
+                and "from " not in s_lower\
+                and "join " not in s_lower\
+                and "where " not in s_lower\
+                and "," not in s_lower\
+                and "(" not in s_lower\
+                and ")" not in s_lower\
+                and "+" not in s_lower\
+                and "?" not in s_lower\
+                and "@" not in s_lower\
+                and ":" not in s_lower\
+                else False
+        else:
+            return True if "select " not in s_lower\
+                and "from " not in s_lower\
+                and "join " not in s_lower\
+                and "where " not in s_lower\
+                and "\"" not in s_lower\
+                and "\'" not in s_lower\
+                and "," not in s_lower\
+                and "(" not in s_lower\
+                and ")" not in s_lower\
+                and "+" not in s_lower\
+                and "?" not in s_lower\
+                and "@" not in s_lower\
+                and ":" not in s_lower\
+                else False
+
     def _extract_conditions(self, tokens):
 
-        def __exclude_clause(s):
-            s_lower = s.lower()
-            if ".\'" in s_lower or ".\"" in s_lower or "\'." in s_lower or "\"." in s_lower:
-                return True if "select " not in s_lower\
-                    and "from " not in s_lower\
-                    and "join " not in s_lower\
-                    and "where " not in s_lower\
-                    and "," not in s_lower\
-                    and "(" not in s_lower\
-                    and ")" not in s_lower\
-                    and "+" not in s_lower\
-                    else False
-            else:
-                return True if "select " not in s_lower\
-                    and "from " not in s_lower\
-                    and "join " not in s_lower\
-                    and "where " not in s_lower\
-                    and "\"" not in s_lower\
-                    and "\'" not in s_lower\
-                    and "," not in s_lower\
-                    and "(" not in s_lower\
-                    and ")" not in s_lower\
-                    and "+" not in s_lower\
-                    else False
+        def __include_literal(t):
+            for t in t.tokens:
+                if str(t.ttype) == "Token.Literal.String.Single" or isinstance(t, Function):
+                    return True
+            return False
 
         def __extract_continuous_cmp_tokens(token):
             if not token.is_group:
@@ -1031,8 +1129,14 @@ class QueryParser:
             token_list = token.tokens
             pos = 2
             while pos < len(token_list):
-                if isinstance(token_list[pos], Comparison) and __exclude_clause(token_list[pos].value):
+                if isinstance(token_list[pos], Comparison) \
+                        and self._exclude_clause(token_list[pos].value) \
+                        and not __include_literal(token_list[pos]):
                     condition_list.append(token_list[pos].value)
+                elif isinstance(token_list[pos], Function):
+                    __extract_internal_cmp_tokens(token)
+                elif isinstance(token_list[pos], Parenthesis):
+                    __extract_internal_cmp_tokens(token)
                 pos += 1
 
         def __extract_internal_cmp_tokens(token):
@@ -1040,16 +1144,22 @@ class QueryParser:
                 return
             intern_tokens = token.tokens
             for token in intern_tokens:
-                if isinstance(token, Comparison) and __exclude_clause(token.value):
+                if isinstance(token, Comparison) \
+                        and self._exclude_clause(token.value) \
+                        and not __include_literal(token):
                     condition_list.append(token.value)
                 elif isinstance(token, Where):
                     __extract_continuous_cmp_tokens(token)
                 elif isinstance(token, Parenthesis):
                     __extract_internal_cmp_tokens(token)
+                elif isinstance(token, Function):
+                    __extract_internal_cmp_tokens(token)
 
         condition_list = list()
         for token in tokens:
-            if isinstance(token, Comparison) and __exclude_clause(token.value):
+            if isinstance(token, Comparison) \
+                    and self._exclude_clause(token.value) \
+                    and not __include_literal(token):
                 condition_list.append(token.value)
             elif isinstance(token, Where):
                 __extract_continuous_cmp_tokens(token)
@@ -1060,6 +1170,49 @@ class QueryParser:
                 __extract_internal_cmp_tokens(token)
 
         return condition_list
+
+    def filter_raw_conditions(self, condition_list):
+
+        def __equal_to_any(s):
+            return True if any([s == i for i in ["default", "true", "false", "null"]]) else False
+
+        def __is_numeric(s):
+            s = s.replace('$', '').strip()
+            try:
+                float(s)
+                return True
+            except ValueError:
+                return False
+
+        filter_conditions = list()
+        for condition in condition_list:
+            if "!=" in condition or "<>" in condition:
+                continue
+            if '=' in condition:
+                condition = condition.replace("==", "=")
+                left, right = condition.split('=', 1)
+                left, right = left.strip(), right.strip()
+            elif '>=' in condition:
+                left, right = condition.split('>=', 1)
+                left, right = left.strip(), right.strip()
+            elif '<=' in condition:
+                left, right = condition.split('<=', 1)
+                left, right = left.strip(), right.strip()
+            elif '>' in condition:
+                left, right = condition.split('>', 1)
+                left, right = left.strip(), right.strip()
+            elif '<' in condition:
+                left, right = condition.split('<', 1)
+                left, right = left.strip(), right.strip()
+            else:
+                continue
+            if __is_numeric(left) or __is_numeric(right) \
+                    or __equal_to_any(left) or __equal_to_any(right) \
+                    or left.startswith('@') or right.startswith('@') \
+                    or left.count(' ') > 1 or right.count(' ') > 1:
+                continue
+            filter_conditions.append(condition)
+        return filter_conditions
 
     def _parse_select_join_query(self, stmt):
         try:
@@ -1088,10 +1241,11 @@ class QueryParser:
                 print("get tables from metadata error!")
 
         condition_list = self._extract_conditions(tokens)
+        condition_list = self.filter_raw_conditions(condition_list)
+        self.raw_condition_list += condition_list
 
         normal_conditions = self._normalize_condition(condition_list, metadata)
         normal_conditions = list(set(normal_conditions))
-        # self.binary_join_list += list(set(normal_conditions))
         self.condition_list += normal_conditions
 
         if not self.is_debug:
@@ -1100,33 +1254,22 @@ class QueryParser:
 
     def _parse_select_where_query(self, stmt):
 
-        def __exclude_clause(s):
-            s_lower = s.lower()
-            if ".\'" in s_lower or ".\"" in s_lower or "\'." in s_lower or "\"." in s_lower:
-                return True if "select " not in s_lower\
-                    and "from " not in s_lower\
-                    and "join " not in s_lower\
-                    and "where " not in s_lower\
-                    and "," not in s_lower\
-                    and "(" not in s_lower\
-                    and ")" not in s_lower\
-                    and "+" not in s_lower\
-                    else False
-            else:
-                return True if "select " not in s_lower\
-                    and "from " not in s_lower\
-                    and "join " not in s_lower\
-                    and "where " not in s_lower\
-                    and "\"" not in s_lower\
-                    and "\'" not in s_lower\
-                    and "," not in s_lower\
-                    and "(" not in s_lower\
-                    and ")" not in s_lower\
-                    and "+" not in s_lower\
-                    else False
+        def __include_literal(t):
+            for t in t.tokens:
+                if str(t.ttype) == "Token.Literal.String.Single" or isinstance(t, Function):
+                    return True
+            return False
 
         def __find_all_where_tokens(tokens):
             return [t for t in tokens if isinstance(t, Where) if t.value.lower() != "select" and "where" in t.value.lower()]
+
+        def __find_all_cmp_tokens(tokens):
+            l = list()
+            for token in tokens:
+                if isinstance(token, Comparison) and token.value not in condition_list \
+                        and not __include_literal(token) and self._exclude_clause(token.value):
+                    l.append(fmt_str(token.value))
+            return l
 
         def __get_condition_str(l):
             for where_token in l:
@@ -1142,22 +1285,25 @@ class QueryParser:
         except Exception as e:
             raise e
 
+        condition_list = list()
         where_tokens = __find_all_where_tokens(tokens)
 
-        condition_list = list()
+        for where_token in where_tokens:
+            condition_list += __find_all_cmp_tokens(where_token.tokens)
+
         for condition_str in __get_condition_str(where_tokens):
             if " and " in condition_str.lower():
-                # condition_list += [c.strip() for c in condition_str.split(" and ")]
-                condition_list += [c.strip() for c in re.split(" and | AND | And ", condition_str) if __exclude_clause(c)]
-            elif " or " in condition_str.lower() and __exclude_clause(condition_str):
-                # condition_list += [c.strip() for c in condition_str.split(" or ")]
-                condition_list += [c.strip() for c in re.split(" or | OR | Or | oR ", condition_str) if __exclude_clause(c)]
-            elif __exclude_clause(condition_str):
-                condition_list += [condition_str.strip()]
+                condition_list += [c.strip() for c in re.split(" and | AND | And ", condition_str) if self._exclude_clause(c) and c.strip() not in condition_list]
+            elif " or " in condition_str.lower() and self._exclude_clause(condition_str):
+                condition_list += [c.strip() for c in re.split(" or | OR | Or | oR ", condition_str) if self._exclude_clause(c) and c.strip() not in condition_list]
+            elif self._exclude_clause(condition_str) and condition_str.strip() not in condition_list:
+                condition_list.append(condition_str.strip())
+
+        condition_list = self.filter_raw_conditions(condition_list)
+        self.raw_condition_list += condition_list
 
         normal_conditions = self._normalize_condition(condition_list, metadata)
         normal_conditions = list(set(normal_conditions))
-        # self.binary_join_list += list(set(normal_conditions))
         self.condition_list += normal_conditions
 
         if not self.is_debug:
@@ -1184,20 +1330,20 @@ class QueryParser:
                 return
             elif "<=" in condition:
                 op = "LtEq"
-                left, right = condition.split("<=")
+                left, right = condition.split("<=", 1)
             elif ">=" in condition:
                 op = "GtEq"
-                left, right = condition.split(">=")
+                left, right = condition.split(">=", 1)
             elif "=" in condition:
                 op = "Eq"
                 condition = condition.replace("==", "=")
-                left, right = condition.split("=")
+                left, right = condition.split("=", 1)
             elif "<" in condition:
                 op = "Lt"
-                left, right = condition.split("<")
+                left, right = condition.split("<", 1)
             elif ">" in condition:
                 op = "Gt"
-                left, right = condition.split(">")
+                left, right = condition.split(">", 1)
             elif "<>" in condition:
                 return
             else:
@@ -1253,6 +1399,8 @@ class QueryParser:
             res = _match_condition(condition, subquery, outter_alias2table)
             if res:
                 condition_list.append(res)
+
+        self.raw_condition_list += condition_list
 
         condition_list = list(set(condition_list))
         self.condition_list += condition_list
@@ -1372,7 +1520,7 @@ class QueryParser:
 
         query_nodes = list()
 
-        # links all node's parent
+        # links all nodes' parent
         for i in range(len(token_nodes)):
             node = QueryNode(token_nodes[i])
             query_nodes.append(node)
@@ -1380,12 +1528,12 @@ class QueryParser:
                 if node.token.has_ancestor(query_nodes[j].token):
                     node.parent = query_nodes[j]
 
-        # links all node's children
+        # links all nodes' children
         for query_node in query_nodes:
             if query_node.parent:
                 query_node.parent.children.append(query_node)
 
-        # generate sub query list
+        # generate subquery list
         for query_node in query_nodes:
             try:
                 subquery_list = __get_subquery_list(query_node)
@@ -1443,12 +1591,28 @@ class QueryParser:
     def _preprocess(self, s):
         return s.replace("(nolock)", "").replace("(NOLOCK)", "").replace("(+)", "").replace("(-)", "")
 
+    @lru_cache(1024)
+    def is_union_query(self, t, is_exist=False):
+        if "tokens" in dir(t):
+            tokens = t.tokens
+            for token in tokens:
+                if self.is_union_query(token):
+                    return True
+        elif t.is_keyword and (t.value.lower() == "union" or t.value.lower() == "union all"):
+            return True
+        return False
+
     def parse(self, s):
         s = self._preprocess(s)
-        print("input query statement")
         root, = parse(s)
         self.visitor = TokenVisitor(root)
         select_tokens = self.visitor.select_tokens
+
+        # if self.is_union_query(root):
+        # print("is union query:", s)
+        # else:
+        # print("not union query:", s)
+        # return
 
         if not select_tokens:
             s = s[s.lower().index("select"):]
@@ -1461,37 +1625,52 @@ class QueryParser:
         self.parse_query_nodes(query_nodes)
 
         if not self.is_debug:
-            if not self.binary_join_list and self.condition_list:
-                print("query parse succ and link fail")
+            # if not self.binary_join_list and self.condition_list:
+            if not self.binary_join_list and self.raw_condition_list:
+                # print("input query statement")
+                if self.condition_list:
+                    # print("query parse succ and link fail, have normalized condition")
+                    pass
+                else:
+                    pass
+                    # print("query parse succ and link fail, have not normalized condition")
+                    # print(s)
+                    # print(self.raw_condition_list)
+            # elif not self.binary_join_list and not self.condition_list:
+            elif not self.binary_join_list and not self.raw_condition_list:
+                pass
+                # print("query parse fail and link fail")
                 # print(s)
-            elif not self.binary_join_list and not self.condition_list:
-                print("query parse fail and link fail")
-                print(s)
             else:
-                print("query parse succ and link succ")
-                print(self.binary_join_list)
+                pass
+                # print("input query statement")
+                # print("query parse succ and link succ")
+                # print(self.binary_join_list)
 
         query_object = self._construct_query_object()
 
-        check_failed_cases = self.check_failed_cases
+        # check_failed_cases = self.check_failed_cases
 
         # return query_object, self.unfound_tables
-        return query_object, check_failed_cases
+        return query_object
 
 
 if __name__ == "__main__":
     query_list = list()
     stmts = [
-        """select p.programno, c.teacherid, c.class_day, c.class_time
-from yoga_class c, yoga_program p
-where c.programno = p.programno
-select *
-from yoga_member""",
+        """insert into nodes(wc_id, local_relpath, op_depth, parent_relpath, presence, kind)
+select wc_id, local_relpath, ? 4, parent_relpath, map_base_deleted, kind
+from nodes
+where
+    wc_id = ? 1 and (
+        local_relpath = ? 2 or is_strict_descendant_of(local_relpath, ? 2)
+    ) and op_depth = ? 3 and presence not in (
+        map_base_deleted, map_not_present, map_excluded, map_server_exclu ded
+    ) and file_external is null"""
     ]
 
-    """
     for stmt in stmts:
-        stmt = stmt.lower()
+        # stmt = stmt.lower()
         stmt = ' '.join(stmt.split())
         parser = QueryParser(dict(), is_debug=True)
         parser.parse(stmt)
@@ -1499,7 +1678,7 @@ from yoga_member""",
         del parser
 
     exit()
-    """
+
     import time
     from pickle import load, dump
     from parse_join_query import SqlparseParser, print_join_obj

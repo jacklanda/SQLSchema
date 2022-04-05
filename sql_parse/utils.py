@@ -16,6 +16,137 @@ import sqlparse
 BINARY_OP = ["=", "<", ">", "<=", ">="]
 
 
+class ColumnTypeDict:
+    """Original SQL Column Type to Self-defined Column Type."""
+
+    __column_type_dict = {
+        "number": "Numeric",
+        "int": "Numeric",
+        "tinyint": "Numeric",
+        "smallint": "Numeric",
+        "mediumint": "Numeric",
+        "bigint": "Numeric",
+        "integer": "Numeric",
+        "long": "Numeric",
+        "numeric": "Numeric",
+        "float": "Numeric",
+        "double": "Numeric",
+        "double precision": "Numeric",
+        "dec": "Numeric",
+        "decimal": "Numeric",
+        "real": "Numeric",
+        "serial": "Numeric",
+        "bigserial": "Numeric",
+        "binary_float": "Numeric",
+        "binary_double": "Numeric",
+        "decfloat": "Numeric",
+        "byte": "Numeric",
+        "single": "Numeric",
+        "autonumber": "Numeric",
+        "bit": "Boolean",
+        "bool": "Boolean",
+        "boolean": "Boolean",
+        "money": "Currency",
+        "smallmoney": "Currency",
+        "currency": "Currency",
+        "char": "String",
+        "varchar": "String",
+        "string": "String",
+        "text": "String",
+        "longtext": "String",
+        "mediumtext": "String",
+        "tinytext": "String",
+        "nchar": "String",
+        "ntext": "String",
+        "character": "String",
+        "character varying": "String",
+        "varchar2": "String",
+        "nvarchar2": "String",
+        "graphic": "String",
+        "vargraphic": "String",
+        "set": "Set",
+        "blob": "Binary",
+        "longblob": "Binary",
+        "mediumblob": "Binary",
+        "tinyblob": "Binary",
+        "binary": "Binary",
+        "varbinary": "Binary",
+        "raw": "Binary",
+        "long raw": "Binary",
+        "clob": "Binary",
+        "nclob": "Binary",
+        "dbclob": "Binary",
+        "bfile": "Binary",
+        "uuid": "ID",
+        "identify": "ID",
+        "identifier": "ID",
+        "uniqueidentifier": "ID",
+        "date": "DateTime",
+        "time": "DateTime",
+        "datetime": "DataTime",
+        "datetime2": "DateTime",
+        "smalldatetime": "DateTime",
+        "datetimeoffset": "DateTime",
+        "year": "DateTime",
+        "timestamp": "DateTime",
+        "interval": "DateTime",
+        "interval year": "DateTime",
+        "interval day": "DateTime",
+        "point": "Geometric",
+        "line": "Geometric",
+        "lseg": "Geometric",
+        "box": "Geometric",
+        "path": "Geometric",
+        "polygon": "Geometric",
+        "circle": "Geometric",
+        "sdo_geometriy": "Geometric",
+        "sdo_topo_geometry": "Geometric",
+        "sdo_georaster": "Geometric",
+        "httpuritype": "URI",
+        "xdburitype": "URI",
+        "dburitype": "URI",
+        "hyperlink": "URI",
+        "ordaudio": "Media",
+        "orddicom": "Media",
+        "orddoc": "Media",
+        "ordimage": "Media",
+        "ordvideo": "Media",
+        "ordimagesignature": "Media",
+        "si_averagecolor": "Media",
+        "si_color": "Media",
+        "si_colorhistogram": "Media",
+        "si_featurelist": "Media",
+        "si_positionalcolor": "Media",
+        "si_stillimage": "Media",
+        "si_texture": "Media",
+        "enum": "Enum",
+        "sql_variant": "sql_variant",
+        "xml": "XML",
+        "cursor": "Cursor",
+        "table": "Table",
+        "image": "Image",
+        "hierarchyid": "Hierarchyid",
+        "rawid": "Rawid",
+        "urowid": "Urowid",
+        "anytype": "Anytype",
+        "anydata": "Anydata",
+        "anydataset": "Anydataset",
+        "memo": "Memo",
+    }
+
+    @property
+    def data(self):
+        return self.__column_type_dict
+
+    def __getitem__(self, __key):
+        if __key not in self.__column_type_dict:
+            raise KeyError("Please check input key for access related column type!")
+        return self.__column_type_dict[__key]
+
+    def __call__(self, __key):
+        return self.__getitem__(__key)
+
+
 class RegexDict:
     """Define and retrieve regex by index
 
@@ -186,7 +317,7 @@ class RegexDict:
         "constraint_pk_create_table": "\((.*?)\)",
         "constraint_fk_create_table": "foreign\s+key\s*.*?\((.*?)\)\s*references\s*([`|'|\"]?.*?[`|'|\"]?)\s*\((.*?)\)",
         "constraint_unique_create_table": "\((.*?)\)",
-        "startwith_fk_create_table": "foreign\s*key\s*\(?(.*?)\)?\s*references\s*([`|'|\"]?.*?[`|'|\"]?)\s*\((.*?)\)",
+        "startwith_fk_create_table": "foreign\s*key\s*.*?\((.*?)\)\s*references\s*([`|'|\"]?.*?[`|'|\"]?)\s*\((.*?)\)",
         "startwith_uk_create_table": "unique\s*key\s*.*?\((.*?)\)",
         "candidate_key_create_table": "\((.*)\)",
         "startwith_ui_create_table": "unique\s+index\s+([`|'|\"]?.*?[`|'|\"]?)\s*\((.*?)\)",
@@ -282,6 +413,18 @@ def fmt_str(s):
 def rm_kw(s):
     """Remove keywords like asc, desc after cols"""
     return s.replace(" asc", "").replace(" desc", "").replace(" ASC", "").replace(" DESC", "").strip()
+
+
+def norm_colname(s):
+    s_input = s
+    s = s.replace('[', '').replace(']', '')
+    if '(' in s:
+        s = s.split('(', 1)[0].strip()
+    elif ')' in s:
+        s = s.split(')', 1)[0].strip()
+    if "::" in s:
+        s = s.rsplit("::", 1)[-1]
+    return s.strip() if s != "" else s_input
 
 
 def clean_stmt(stmt):
@@ -391,6 +534,12 @@ def calc_col_cov(table_lhs, table_rhs):
         if col_name not in n2c_lhs:
             lost_nums += 1
     return lost_nums
+
+
+def get_chunks(lst, n):
+    """Yield successive n-sized chunks from lst."""
+    for i in range(0, len(lst), n):
+        yield lst[i:i + n]
 
 
 if __name__ == "__main__":

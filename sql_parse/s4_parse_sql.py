@@ -12,22 +12,6 @@ r"""
 ###      wherever on create table or alter table,       ###
 ###                                                     ###
 ###########################################################
-
-                         SQL Table Parser
-                            /   |   \
-                           /    |    \
-                        create ...  alter
-                         / \         / \
-                        /   \       /   \
-                      ...   ...   ...   ...
-
-Procedure design:
-    - Judge firstly whether is a `create` operation or an `alter` operation on table, it can be described as a binary selection.
-    - Read && save table name, and split each sql statement according to the comma `,` followed it.
-    - For each statement, judge whether is a multi-column operation or a single column operation whatever it's creation or alteration.
-    - Handle the different statement according to its column type.
-    - Append the handling result to our pre-defined data structure.
-    - When handled all the SQL files, dump locally the data structure as a pickle file to finish SQL parsing procedure.
 """
 
 ###############################################################
@@ -52,8 +36,6 @@ import signal
 import pickle
 import logging
 import traceback
-from enum import Enum
-from enum import unique
 from pprint import pprint
 from copy import deepcopy
 from collections import deque
@@ -62,20 +44,28 @@ import sqlparse
 
 from sample import print_table_obj
 from parse_query import QueryParser
-# from parse_join_query import (
-# parse_one_statement_select_join,
-# parse_one_statement_select_where,
-# )
+from cls_def import (
+    Column,
+    ColumnType,
+    ForeignKey,
+    Index,
+    Key,
+    ParseStage,
+    Pipeline,
+    Table,
+)
 from utils import (
     rm_kw,
     fmt_str,
     clean_stmt,
     calc_col_cov,
     split_string,
+    norm_colname,
     query_stmt_split,
-    # convert_camel_to_underscore,
     Counter,
+    Timeout,
     RegexDict,
+    ColumnTypeDict,
 )
 
 
@@ -105,254 +95,6 @@ COUNTER_QUERY, COUNTER_QUERY_EXCEPT = Counter(), Counter()
 TOTAL_TABLE_NUM, REPEAT_NUM, NOT_REPEAT_NUM = 0, 0, 0
 
 
-@unique
-class ParseStage(Enum):
-    """Enum class for definitions on parsing stages.
-
-    Stage
-    -----
-    - create: handle CREATE TABLE statements.
-    - alter: handle ALTER TABLE statements.
-    - fk: handle FKs on referred missing cases in create and alter.
-    - query: handle queries with JOINs statements.
-    """
-    create = 0
-    alter = 1
-    insert = 2
-    fk = 3
-    query = 4
-
-
-class Query:
-    """Query class for clauses SELECT with JOINs object construction,
-    Construct a Query object to maintain all the Join objects in query-join statement.
-
-    Params
-    ------
-    - join_list: list[Join]
-
-    Attribs
-    -------
-    - join_list: list[Join]
-
-    Returns
-    -------
-    - A Query object
-    """
-
-    def __init__(self, join_list):
-        self.__join_list = join_list
-
-    @property
-    def join_list(self):
-        return self.__join_list
-
-
-class Key:
-    """Key class for Primary Key, Candidate Key, Unique Index and Unique Column object construction.
-    A table can have only one primary key, which may consist of single or multiple fields.
-    In this class, we use instance variable `is_pk` to represent this object is to save pk or others.
-    There are totally six kinds of optional key types for every Key object:
-    (1) PrimaryKey, (2) CandidateKey, (3) UniqueKey
-    (4) UniqueIndex, (5) UniqueColumn, (6) Index
-
-    Params
-    ------
-    - key_type: str
-    - key_col_list: list[Column]
-
-    Attribs
-    -------
-    - key_type: str
-    - key_col_list: list[Column]
-
-    Returns
-    -------
-    - a Key object
-    """
-
-    def __init__(self, key_type, key_col_list):
-        self.__key_type = key_type
-        self.__key_col_list = key_col_list
-
-    @property
-    def key_type(self):
-        return self.__key_type
-
-    @property
-    def key_col_list(self):
-        return self.__key_col_list
-
-
-class ForeignKey:
-    """ForeignKey class for Foreign Key object construction.
-    A table can have several different fks, which may consist of single or multiple fields.
-    The several fk objects could be maintained in a list which should be a member of Table class.
-
-    Params
-    ------
-    - fk_col_list: list[Column]
-    - ref_tab_obj: Table
-    - ref_col_list: list[Column]
-
-    Attribs
-    -------
-    - fk_cols: list[Column]
-    - ref_tab: Table
-    - ref_cols: list[Column]
-
-    Returns
-    -------
-    - a ForeignKey object
-    """
-
-    def __init__(self, fk_col_list, ref_tab_obj, ref_col_list):
-        self.__fk_col_list = fk_col_list
-        if not isinstance(ref_tab_obj, Table):
-            raise ValueError("param `ref_tab_obj` must be a Table object!")
-        self.__ref_tab_obj = ref_tab_obj
-        self.__ref_col_list = ref_col_list
-
-    @property
-    def fk_cols(self):
-        return self.__fk_col_list
-
-    @property
-    def ref_tab(self):
-        return self.__ref_tab_obj
-
-    @property
-    def ref_cols(self):
-        return self.__ref_col_list
-
-
-class Column:
-    """Construct a column object for a SQL column.
-
-    Params
-    ------
-    - col_name: str
-    - is_notnull: bool, default=False
-
-    Returns
-    -------
-    - a Column object
-    """
-
-    def __init__(
-        self,
-        col_name,
-        is_notnull=False,
-    ):
-        self.col_name = col_name
-        self.is_notnull = is_notnull
-
-    def is_col_inferred_notnull(self):
-        return self.is_notnull
-
-    def print_for_lm_components(self):
-        """multi-line, new format, for classification csv
-        """
-        str_list = [self.cleansed_col_name()]
-        if self.is_col_inferred_notnull():
-            str_list.append(TOKEN_NOTNULL)
-        else:
-            str_list.append('')
-
-        return str_list
-
-    def cleansed_col_name(self):
-        return self.col_name.strip('\'`"[]')
-
-
-class Table:
-    """Construct table object for a SQL table.
-
-    Params
-    ------
-    - tab_name: str
-    - hashid: str
-    - key_list: Optional[None, list[Key]], default=None
-    - fk_list: Optional[None, list[ForeignKey]], default=None
-
-    Returns
-    -------
-    - a Table object
-    """
-
-    def __init__(self, tab_name, hashid, key_list=None, fk_list=None):
-        self._tab_name = tab_name
-        self._hashid = hashid
-        self._key_list = key_list
-        self._fk_list = fk_list
-        self._name2col = dict()
-        self._col_name_seq = list()  # log the order in which cols are added into the table (leftness etc. matter)
-
-    @property
-    def tab_name(self):
-        return self._tab_name
-
-    @property
-    def hashid(self):
-        return self._hashid
-
-    @property
-    def key_list(self):
-        if self._key_list is None:
-            self._key_list = list()
-        return self._key_list
-
-    @property
-    def fk_list(self):
-        if self._fk_list is None:
-            self._fk_list = list()
-        return self._fk_list
-
-    @property
-    def name2col(self):
-        return self._name2col
-
-    @property
-    def col_name_seq(self):
-        return self._col_name_seq
-
-    def insert_col(self, col):
-        """Insert a new column into the table object."""
-        if col.col_name in self.name2col:
-            # raise Exception(f"col already exists in table: {col.col_name}")
-            return
-        self.name2col[col.col_name] = col
-
-    def print_for_lm_multi_line(self):
-        """Generate text for language modeling."""
-        # iterate cols in the order in which they are added
-        col_lm_str_list = list()
-        for col_name in self.col_name_seq:
-            col_obj = self.name2col[col_name]
-            components = col_obj.print_for_lm_components()
-            components.insert(0, self.hashid)  # add file-name
-            components.insert(1, self.cleansed_table_name())  # add file-name
-
-            # skip line if components[0] (table-name) has bad punct (likely bad sql parse)
-            if ' ' in components[1] or ',' in components[1]:
-                print("skipping line for bad parse (punct in tab_name): " + components[1])
-                continue
-            # skip line if components[0] (table-name) has bad punct (likely bad sql parse)
-            if ' ' in components[2] or ',' in components[2]:
-                print("skipping line for bad parse (punct in col_name): " + components[2])
-                continue
-            col_lm_str_list.append(','.join(components))
-
-        return col_lm_str_list
-
-    def cleansed_table_name(self):
-        """Clean table name."""
-        clean_tab_name = self.tab_name
-        if '.' in clean_tab_name:
-            clean_tab_name = clean_tab_name.split('.')[1]
-        return clean_tab_name.strip('\'`"[]')
-
-
 class File:
     """Construct a file object to keep the information from a SQL file.
 
@@ -377,8 +119,23 @@ class File:
         self.hashid = hashid
         self.repo_name2tab = repo_name2tab
         self.multi_name2tab = multi_name2tab
-        self.memo = set()  # set(tuple[str])
+        self.memo = set()  # set[tuple[str]]
         self.query_list = list()
+
+    @staticmethod
+    def construct_index_obj(index_type, index_cols):
+        """Construct a index object.
+
+        Params
+        ------
+        - index_type: str
+        - index_cols: list[Column]
+
+        Returns
+        -------
+        - an Index object
+        """
+        return Index(index_type, index_cols)
 
     @staticmethod
     def construct_key_obj(key_type, key_col_list):
@@ -393,12 +150,10 @@ class File:
         -------
         - a Key object
         """
-        # key_col_list = fmt_str(key_cols_str).split(',')
-        # key_col_list = [c.strip() for c in key_col_list]
         return Key(key_type, key_col_list)
 
     @staticmethod
-    def construct_fk_obj(fk_col_list, ref_tab_obj, ref_col_list):
+    def construct_fk_obj(fk_tab_obj, fk_col_list, ref_tab_obj, ref_col_list):
         """Construct a foreign key object.
 
         Params
@@ -411,11 +166,7 @@ class File:
         -------
         - a ForeignKey object
         """
-        # fk_col_list = fmt_str(fk_cols_str).split(',')
-        # fk_col_list = [c.strip() for c in fk_col_list]
-        # ref_col_list = fmt_str(ref_cols_str).split(',')
-        # ref_col_list = [c.strip() for c in ref_col_list]
-        return ForeignKey(fk_col_list, ref_tab_obj, ref_col_list)
+        return ForeignKey(fk_tab_obj, fk_col_list, ref_tab_obj, ref_col_list)
 
     def extract_tab_col_name(self, entity_name):
         return (entity_name.rsplit('.', 1)[0], entity_name.rsplit('.', 1)[1]) \
@@ -490,9 +241,10 @@ class File:
         if isinstance(tab, Table):
             tab_obj = tab
         elif isinstance(tab, str):
-            tab = fmt_str(tab)
-            if tab in self.repo_name2tab:
-                tab_obj = self.repo_name2tab[tab]
+            tab = fmt_str(tab).lower() if '.' not in tab else fmt_str(tab.rsplit('.', 1)[-1]).lower()
+            lower2name2tab = {k.lower(): (k, v) for (k, v) in self.repo_name2tab.items()} | {k.lower().rsplit('.', 1)[-1]: (k, v) for (k, v) in self.repo_name2tab.items() if '.' in k}
+            if tab in lower2name2tab:
+                tab_obj = lower2name2tab[tab][1]
             else:
                 # print(f"Unknown ref table `{tab}`", end=" | ")
                 return False
@@ -501,9 +253,10 @@ class File:
         # check ref col is valid or not
         if cols is not None:
             cols = fmt_str(cols).split(',')
-            cols = [rm_kw(c) for c in cols]
+            cols = [rm_kw(c).lower() for c in cols]
+            lower2name2col = {k.lower(): (k, v) for (k, v) in tab_obj.name2col.items()}
             for col in cols:
-                if col not in tab_obj.name2col:
+                if col not in lower2name2col:
                     # print(f"Unknown ref col `{col}` in ref table `{tab_obj.tab_name}`")
                     return False
         return True
@@ -525,6 +278,7 @@ class File:
         try:
             # parse table name, create table obj
             # tab_name = fmt_str(stmt.split("create table")[1].split('(')[0]).replace("if not exists", "").replace("IF NOT EXISTS", "").strip()
+            stmt_lower = stmt.lower()
             if "create table" in stmt.lower():
                 tab_name = fmt_str(split_string(stmt, "create table").split('(')[0]).replace("if not exists", "").replace("IF NOT EXISTS", "").strip()
                 try:
@@ -539,6 +293,27 @@ class File:
                     return
 
             tab_obj = Table(tab_name, self.hashid)
+            """
+            if "foreign key" in stmt_lower:
+                fk_str_nums = stmt_lower.count("foreign key")
+                print("input create table stmt with fk")
+
+            if "primary key" in stmt_lower:
+                pk_str_nums = stmt_lower.count("primary key")
+                print("input create table stmt with pk")
+
+            if " unique " in stmt_lower:
+                uniq_str_nums = stmt_lower.count(" unique ")
+                print("input create table stmt with unique")
+
+            if " not null" in stmt_lower:
+                notnull_str_nums = stmt_lower.count(" not null")
+                print("input create table stmt with not null")
+
+            if "key " in stmt_lower:
+                key_str_nums = stmt_lower.count("key ") - stmt_lower.count("primary key") - stmt_lower.count("foreign key")
+                print("input create table with key")
+            """
 
             # new feature:
             # try:
@@ -629,16 +404,19 @@ class File:
                                 try:
                                     fk_cols = get_column_object(tab_obj, fk_cols)
                                     fk_ref_cols = get_column_object(tab_obj, fk_ref_cols)
-                                    fk_obj = File.construct_fk_obj(fk_cols, tab_obj, fk_ref_cols)
+                                    fk_obj = File.construct_fk_obj(tab_obj, fk_cols, tab_obj, fk_ref_cols)
                                     tab_obj.fk_list.append(fk_obj)
                                 except:
                                     continue
                             elif fk_ref_tab != tab_name and self.is_fk_ref_valid(fk_ref_tab, fk_ref_cols):
                                 try:
-                                    ref_tab_obj = self.repo_name2tab[fk_ref_tab]
+                                    lower2name2tab = {k.lower(): (k, v) for k, v in self.repo_name2tab.items()} | {k.lower().rsplit('.', 1)[-1]: (k, v) for k, v in self.repo_name2tab.items() if '.' in k}
+                                    fk_ref_tab = fk_ref_tab.lower() if '.' not in fk_ref_tab else fk_ref_tab.lower().rsplit('.', 1)[-1]
+                                    ref_tab_obj = lower2name2tab[fk_ref_tab][1]
+                                    # ref_tab_obj = self.repo_name2tab[fk_ref_tab]
                                     fk_cols = get_column_object(tab_obj, fk_cols)
                                     fk_ref_cols = get_column_object(ref_tab_obj, fk_ref_cols)
-                                    fk_obj = File.construct_fk_obj(fk_cols, ref_tab_obj, fk_ref_cols)
+                                    fk_obj = File.construct_fk_obj(tab_obj, fk_cols, ref_tab_obj, fk_ref_cols)
                                     tab_obj.fk_list.append(fk_obj)
                                 except:
                                     continue
@@ -712,7 +490,7 @@ class File:
                             # pk_col_defs = clause.split("primary key")[0].split()
                             pk_col_defs = split_string(clause, "primary key", get_first=True).split()
                             pk_col = fmt_str(pk_col_defs[0].strip())
-                            # pk_col_type = fmt_str(pk_col_defs[1].strip())  # unused for now
+                            pk_col_type = norm_colname(fmt_str(pk_col_defs[1].strip()).lower())
                         except:
                             continue
 
@@ -731,7 +509,7 @@ class File:
                             except:
                                 continue
 
-                        col_obj = Column(pk_col)
+                        col_obj = Column(pk_col, pk_col_type)
                         tab_obj.insert_col(col_obj)
                         tab_obj.col_name_seq.append(pk_col)
 
@@ -771,10 +549,13 @@ class File:
                     if self.is_fk_ref_valid(tab_obj, fk_cols) and \
                        self.is_fk_ref_valid(fk_ref_tab, fk_ref_cols):
                         try:
-                            ref_tab_obj = self.repo_name2tab[fk_ref_tab]
+                            lower2name2tab = {k.lower(): (k, v) for k, v in self.repo_name2tab.items()} | {k.lower().rsplit('.', 1)[-1]: (k, v) for k, v in self.repo_name2tab.items() if '.' in k}
+                            fk_ref_tab = fk_ref_tab.lower() if '.' not in fk_ref_tab else fk_ref_tab.lower().rsplit('.', 1)[-1]
+                            ref_tab_obj = lower2name2tab[fk_ref_tab][1]
+                            # ref_tab_obj = self.repo_name2tab[fk_ref_tab]
                             fk_cols = get_column_object(tab_obj, fk_cols)
                             fk_ref_cols = get_column_object(ref_tab_obj, fk_ref_cols)
-                            fk_obj = File.construct_fk_obj(fk_cols, ref_tab_obj, fk_ref_cols)
+                            fk_obj = File.construct_fk_obj(tab_obj, fk_cols, ref_tab_obj, fk_ref_cols)
                             tab_obj.fk_list.append(fk_obj)
                         except:
                             continue
@@ -857,6 +638,8 @@ class File:
                             ui_cols = get_column_object(tab_obj, ui_cols)
                             ui_obj = File.construct_key_obj("UniqueIndex", ui_cols)
                             tab_obj.key_list.append(ui_obj)
+                            uniq_idx_obj = File.construct_index_obj("UniqueIndex", ui_cols)
+                            tab_obj.index_list.append(uniq_idx_obj)
                         except:
                             continue
                     else:
@@ -909,6 +692,8 @@ class File:
                             index_cols = get_column_object(tab_obj, index_cols)
                             index_obj = File.construct_key_obj("Index", index_cols)
                             tab_obj.key_list.append(index_obj)
+                            idx_obj = File.construct_index_obj("Index", ui_cols)
+                            tab_obj.index_list.append(idx_obj)
                         except:
                             continue
                     else:
@@ -923,16 +708,16 @@ class File:
                 elif "references" in clause_lower:
                     try:
                         result = re.findall("(.*?)\s(.*?)\s.*references", clause, re.IGNORECASE)[0]
-                        col_name, col_type = fmt_str(result[0]), fmt_str(result[1])
+                        col_name, col_type = fmt_str(result[0]), norm_colname(fmt_str(result[1]).lower())
                     except:
                         continue
                     else:
                         if col_name == "":
                             continue
-                        if not any(known_type in col_type.lower() for known_type in COL_DATA_TYPES):
+                        if not any(known_type in col_type for known_type in COL_DATA_TYPES):
                             continue
 
-                        col_obj = Column(col_name)
+                        col_obj = Column(col_name, col_type)
 
                         # handle UNIQUE constraint in ordinary column
                         if "unique" in clause_lower:
@@ -967,21 +752,20 @@ class File:
                             c_name = fmt_str(result)
                             c_type_splt = clause.split(result)
                             # c_type = clause.split(result)[1].split()[0]
-                            if len(c_type_splt) == 1:
-                                c_type = "int"
-                            elif len(c_type_splt) > 1:
+                            if len(c_type_splt) > 1:
                                 c_type = c_type_splt[1].strip()
                             else:
-                                c_type = "int"
+                                continue
                     else:
                         splt = col_defs.split()
                         if not splt:
                             continue
                         c_name = fmt_str(splt[0])
                         try:
-                            c_type = fmt_str(splt[1])
+                            c_type = norm_colname(fmt_str(splt[1]).lower())
                         except:
-                            c_type = "int"
+                            continue
+                            # c_type = "int"
 
                     if c_name == "":
                         continue
@@ -989,7 +773,7 @@ class File:
                         # print('unrecognized type: ' + c_type)
                         continue
 
-                    col_obj = Column(c_name)
+                    col_obj = Column(c_name, c_type)
 
                     # handle UNIQUE constraint in ordinary column
                     if "unique" in clause_lower:
@@ -1001,12 +785,88 @@ class File:
                     # add col_obj into table_obj
                     tab_obj.insert_col(col_obj)
                     tab_obj.col_name_seq.append(c_name)
+
+            """
+            if "key " in stmt_lower:
+                if tab_obj.key_list:
+                    key_nums = 0
+                    for key_obj in tab_obj.key_list:
+                        if key_obj.key_type == "CandidateKey":
+                            key_nums += 1
+                    if key_nums == key_str_nums:
+                        print("one table parse key succ, all parse succ")
+                    elif key_nums != 0:
+                        print("one table parse key succ, partial parse succ")
+                    else:
+                        print("one table parse key fail")
+                else:
+                    print("one table parse key fail")
+                    print(stmt_lower)
+            if "primary key" in stmt_lower:
+                if tab_obj.key_list:
+                    pk_nums = 0
+                    for key_obj in tab_obj.key_list:
+                        if key_obj.key_type == "PrimaryKey":
+                            pk_nums += 1
+                    if pk_nums == pk_str_nums:
+                        print("one table parse pk succ, all parse succ")
+                    elif pk_nums != 0:
+                        print("one table parse pk succ, partial parse succ")
+                        print(stmt_lower, tab_obj.key_list)
+                    else:
+                        print("one table parse pk fail")
+                else:
+                    print("one table parse pk fail")
+                    print(stmt_lower)
+            if "foreign key" in stmt_lower:
+                if tab_obj.fk_list:
+                    if len(tab_obj.fk_list) == fk_str_nums:
+                        print("one table parse fk succ, all parse succ")
+                    else:
+                        print("one table parse fk succ, partial parse succ")
+                        print(stmt_lower, tab_obj.fk_list)
+                else:
+                    print("one table parse fk fail")
+                    print(stmt_lower)
+            if " unique " in stmt_lower:
+                if tab_obj.key_list:
+                    uniq_nums = 0
+                    for key_obj in tab_obj.key_list:
+                        if "Unique" in key_obj.key_type:
+                            uniq_nums += 1
+                    if uniq_nums == uniq_str_nums:
+                        print("one table parse uniq succ, all parse succ")
+                    elif uniq_nums != 0:
+                        print("one table parse uniq succ, partial parse succ")
+                        print(stmt_lower, tab_obj.key_list)
+                    else:
+                        print("one table parse uniq fail")
+                else:
+                    print("one table parse uniq fail")
+                    print(stmt_lower)
+            if " not null" in stmt_lower:
+                if tab_obj.name2col:
+                    notnull_nums = 0
+                    for col_name, col_obj in tab_obj.name2col.items():
+                        if col_obj.is_notnull:
+                            notnull_nums += 1
+                    if notnull_nums == notnull_str_nums:
+                        print("one table parse not null succ, all parse succ")
+                    elif notnull_nums != 0:
+                        print("one table parse not null succ, partial parse succ")
+                    else:
+                        print("one table parse not null fail")
+                else:
+                    print("one table parse not null fail")
+            """
+
             return tab_obj if len(tab_obj.name2col) != 0 else None
         except Exception as e:
             # print()
-            print("create table parse error↓")
-            print(stmt)
-            logging.exception(e)
+            # print()
+            # print("create table parse error↓")
+            # print(stmt)
+            # logging.exception(e)
             COUNTER_EXCEPT.add()
             return None
 
@@ -1036,7 +896,7 @@ class File:
                 another_tab_obj = lower2name2tab[c.rsplit(".*", 1)[0].lower()][1]
                 for col_obj in another_tab_obj.name2col:
                     if col_obj.col_name not in tab_obj.name2col:
-                        new_col_obj = Column(col_obj.col_name)
+                        new_col_obj = Column(col_obj.col_name, col_obj.col_type)
                         tab_obj.insert_col(new_col_obj)
                         tab_obj.col_name_seq.append(col_obj.col_name)
                         column_list.append(col_obj.col_name)
@@ -1054,7 +914,7 @@ class File:
                     another_tab_obj = lower2name2tab[from_table.lower()][1]
                     for col_obj in another_tab_obj.name2col:
                         if col_obj.col_name not in tab_obj.name2col:
-                            new_col_obj = Column(col_obj.col_name)
+                            new_col_obj = Column(col_obj.col_name, col_obj.col_type)
                             tab_obj.insert_col(new_col_obj)
                             tab_obj.col_name_seq.append(col_obj.col_name)
                             column_list.append(col_obj.col_name)
@@ -1068,8 +928,8 @@ class File:
                 col_obj = Column(col)
                 tab_obj.insert_col(col_obj)
                 tab_obj.col_name_seq.append(col)
-        print("input create table as stmt:", stmt)
-        print(f"create table as select succ: table: {table_name}, columns: {column_list}")
+        # print("input create table as stmt:", stmt)
+        # print(f"create table as select succ: table: {table_name}, columns: {column_list}")
         # pprint(tab_obj.name2col)
         return tab_obj
 
@@ -1094,7 +954,7 @@ class File:
             # tab_name = fmt_str(re.match(REGEX_DICT("get_alter_table_name"), stmt, re.IGNORECASE).group(2))
             lower2name2tab = {k.lower(): (k, v) for k, v in self.repo_name2tab.items()}
             if tab_name.lower() not in lower2name2tab:
-                print(f"Did not find this table on alter table: {tab_name}")
+                # print(f"Did not find this table on alter table: {tab_name}")
                 # if " " in tab_name:
                 # return
                 tab_obj = Table(tab_name, self.hashid)
@@ -1218,10 +1078,13 @@ class File:
                     if self.is_fk_ref_valid(tab_obj, fk_cols) and \
                        self.is_fk_ref_valid(fk_ref_tab, fk_ref_cols):
                         # print(f"| <foreign_key_cols:\"{fmt_str(fk_cols)}\"> | <ref_table_name:\"{fmt_str(fk_ref_tab)}\"> | <ref_cols:\"{fmt_str(fk_ref_cols)}\"> |")
-                        ref_tab_obj = self.repo_name2tab[fk_ref_tab]
+                        # ref_tab_obj = self.repo_name2tab[fk_ref_tab]
+                        lower2name2tab = {k.lower(): (k, v) for k, v in self.repo_name2tab.items()} | {k.lower().rsplit('.', 1)[-1]: (k, v) for k, v in self.repo_name2tab.items() if '.' in k}
+                        fk_ref_tab = fk_ref_tab.lower() if '.' not in fk_ref_tab else fk_ref_tab.lower().rsplit('.', 1)[-1]
+                        ref_tab_obj = lower2name2tab[fk_ref_tab][1]
                         fk_cols = get_column_object(tab_obj, fk_cols)
                         fk_ref_cols = get_column_object(ref_tab_obj, fk_ref_cols)
-                        fk_obj = File.construct_fk_obj(fk_cols, ref_tab_obj, fk_ref_cols)
+                        fk_obj = File.construct_fk_obj(tab_obj, fk_cols, ref_tab_obj, fk_ref_cols)
                         tab_obj.fk_list.append(fk_obj)
                     else:
                         self.memo.add((tab_name, fk_cols, fk_ref_tab, fk_ref_cols))
@@ -1266,6 +1129,8 @@ class File:
                             ui_cols = get_column_object(tab_obj, ui_cols)
                             ui_obj = File.construct_key_obj("UniqueIndex", ui_cols)
                             tab_obj.key_list.append(ui_obj)
+                            uniq_idx_obj = File.construct_index_obj("UniqueIndex", ui_cols)
+                            tab_obj.index_list.append(uniq_idx_obj)
                         else:
                             raise Exception("ADD UNIQUE INDEX error: references on alter table not found!")
                     # 3) handle ADD CONSTRAINT UNIQUE KEY
@@ -1302,6 +1167,8 @@ class File:
                             ref_cols = get_column_object(tab_obj, ref_cols)
                             ui_obj = File.construct_key_obj("UniqueIndex", ref_cols)
                             tab_obj.key_list.append(ui_obj)
+                            uniq_idx_obj = File.construct_index_obj("UniqueIndex", ui_cols)
+                            tab_obj.index_list.append(uniq_idx_obj)
                         else:
                             raise Exception("CREATE UNIQUE INDEX error: references on alter table not found!")
                     else:
@@ -1329,16 +1196,16 @@ class File:
                     else:
                         tokens = clause.replace("ADD ", "").replace("add ", "").strip().split()
                     try:
-                        col_name, col_type = tokens[0], tokens[1]
+                        col_name, col_type = tokens[0], norm_colname(tokens[1].lower())
                     except:
                         continue
-                    if not any(known_type in col_type.lower() for known_type in COL_DATA_TYPES):
+                    if not any(known_type in col_type for known_type in COL_DATA_TYPES):
                         continue
                     if col_name in tab_obj.name2col:
                         continue
                     if ' ' in col_name:
                         continue
-                    tab_obj.name2col[col_name] = Column(col_name)
+                    tab_obj.name2col[col_name] = Column(col_name, col_type)
                 else:
                     # print(f"Unhandled operation on alter table: {clause}")
                     pass
@@ -1377,6 +1244,12 @@ class File:
                 idx_obj = File.construct_key_obj("UniqueIndex", idx_cols)\
                     if "create unique index" in stmt_lower else File.construct_key_obj("Index", idx_cols)
                 tab_obj.key_list.append(idx_obj)
+                if "create unique index" in stmt_lower:
+                    uniq_idx_obj = File.construct_index_obj("UniqueIndex", idx_cols)
+                    tab_obj.index_list.append(uniq_idx_obj)
+                else:
+                    idx_obj = File.construct_index_obj("Index", idx_cols)
+                    tab_obj.index_list.append(idx_obj)
             else:
                 raise Exception("CREATE INDEX error: references on CREATE INDEX not found!")
         except Exception as e:
@@ -1463,7 +1336,7 @@ class File:
                 tab_obj = self.parse_one_statement_create_as_select(stmt)
             except Exception as e:
                 COUNTER_CT_EXCEPT.add()
-                print("create as select error")
+                # print("create as select error")
                 logging.exception(e)
                 return
             else:
@@ -1483,6 +1356,9 @@ class File:
                 return
             else:
                 if tab_obj is None:
+                    # print()
+                    # print("create table parse error↓")
+                    # print(stmt)
                     COUNTER_CT_EXCEPT.add()
                     return
                 if tab_obj.tab_name not in self.multi_name2tab:
@@ -1503,7 +1379,7 @@ class File:
                 stmt = stmt[stmt_lower.index("insert"):]
                 self._parse_one_statement_insert(stmt)
             except Exception as e:
-                print("parse insert error↓")
+                # print("parse insert error↓")
                 logging.exception(e)
         else:
             # check if the input statement is supported.
@@ -1529,25 +1405,15 @@ class File:
             pat_at = re.compile("alter table", re.IGNORECASE)
             pat_ci = re.compile("create index", re.IGNORECASE)
             pat_cui = re.compile("create unique index", re.IGNORECASE)
-            # pat_sel = re.compile("select", re.IGNORECASE)
             pat_ii = re.compile("insert into", re.IGNORECASE)
             pat_cv = re.compile("create view", re.IGNORECASE)
             s = pat_ct.sub(";\ncreate table", s)
             s = pat_at.sub(";\nalter table", s)
             s = pat_ci.sub(";\ncreate index", s)
             s = pat_cui.sub(";\ncreate unique index", s)
-            # s = pat_sel.sub(";\nselect", s)
             s = pat_ii.sub(";\ninsert into", s)
             s = pat_cv.sub(";\ncreate view", s)
             return s
-            # return s\
-            # .replace("create table", ";\ncreate table")\
-            # .replace("alter table", ";\nalter table")\
-            # .replace("create index", ";\ncreate index")\
-            # .replace("create unique index", ";\ncreate unique index")\
-            # .replace("select", ";\nselect")\
-            # .replace("insert into", ";\ninsert into")\
-            # .replace("create view", ";\ncreate view")
 
         # stmts = stmts.lower().split(';')
         if stage != ParseStage.query:
@@ -1573,16 +1439,19 @@ class File:
             if len(s) < STATEMENT_SIZE_LIMIT:
                 self.parse_one_statement(s)
             else:
-                print("skipping a long statement")
+                # print("skipping a long statement")
+                pass
 
 
 def get_column_object(table_obj, cols_name_str):
     """column names to a list of column objects."""
     col_obj_list = list()
     col_name_list = fmt_str(cols_name_str).split(',')
-    col_name_list = [rm_kw(c) for c in col_name_list]
+    col_name_list = [rm_kw(c).lower() for c in col_name_list]
+    lower2name2col = {k.lower(): (k, v) for (k, v) in table_obj.name2col.items()}
     for col_name in col_name_list:
-        col_obj = table_obj.name2col[col_name]
+        # col_obj = table_obj.name2col[col_name]
+        col_obj = lower2name2col[col_name][1]
         col_obj_list.append(col_obj)
     return col_obj_list
 
@@ -1619,135 +1488,197 @@ def parse_repo_files(repo_obj):
     for stage in ParseStage:
         print('=' * 30, stage, '=' * 30)
         for fp in fpath_list:
-            with Timeout(3):
-                if stage == ParseStage.create:
-                    print('-' * 90)
-                    print(f"{stage}:\t{fp}")
-                if stage == ParseStage.create:
-                    # handle CREATE TABLE clauses
-                    # fp = "/datadrive/yang/exp/data/s3_sql_files_crawled_all_vms/4986571943599317614.sql"
-                    with open(fp, encoding="utf-8", errors="ignore") as f:
-                        hashid = fp.split('/')[-1]
-                        lines = f.readlines()
-                        file_obj = File(hashid, repo_obj.name2tab, multi_name2tab)
+            # with Timeout(3):
+            if stage == ParseStage.create:
+                print('-' * 90)
+                print(f"{stage}:\t{fp}")
+            if stage == ParseStage.create:
+                # handle CREATE TABLE clauses
+                # fp = "/datadrive/yang/exp/data/s3_sql_files_crawled_all_vms/4986571943599317614.sql"
+                with open(fp, encoding="utf-8", errors="ignore") as f:
+                    hashid = fp.split('/')[-1]
+                    lines = f.readlines()
+                    file_obj = File(hashid, repo_obj.name2tab, multi_name2tab)
+                    try:
+                        stmts = ''.join(lines)
+                        # stmts = convert_camel_to_underscore(stmts)
+                        file_obj.parse(stmts, stage)
+                    except Exception as e:
+                        print("first stage failed | ", e)
+                    finally:
+                        # whatever parse success or failed, push file_obj into queue
+                        file_obj_queue.append(file_obj)
+                        # repo_memo[file_obj.hashid] = deepcopy(file_obj.memo)
+            elif stage == ParseStage.alter:
+                # handle ALTER TABLE clauses
+                with open(fp, encoding="utf-8", errors="ignore") as f:
+                    lines = f.readlines()
+                    with Pipeline(file_obj_queue) as file_obj:
                         try:
                             stmts = ''.join(lines)
                             # stmts = convert_camel_to_underscore(stmts)
                             file_obj.parse(stmts, stage)
                         except Exception as e:
-                            print("first stage failed | ", e)
+                            print("second stage failed | ", e)
                         finally:
-                            # whatever parse success or failed, push file_obj into queue
-                            file_obj_queue.append(file_obj)
-                            # repo_memo[file_obj.hashid] = deepcopy(file_obj.memo)
-                elif stage == ParseStage.alter:
-                    # handle ALTER TABLE clauses
-                    with open(fp, encoding="utf-8", errors="ignore") as f:
-                        lines = f.readlines()
-                        with Pipeline(file_obj_queue) as file_obj:
-                            try:
-                                stmts = ''.join(lines)
-                                # stmts = convert_camel_to_underscore(stmts)
-                                file_obj.parse(stmts, stage)
-                            except Exception as e:
-                                print("second stage failed | ", e)
-                            finally:
-                                # whatever parse success or failed, append file_obj to queue
-                                if len(file_obj.memo) == 0:
-                                    continue
-                                repo_memo[file_obj.hashid] = deepcopy(file_obj.memo)
-                elif stage == ParseStage.insert:
-                    # handle INSERT (INTO) clauses
-                    # fp = "/datadrive/yang/exp/data/s3_sql_files_crawled_all_vms/8348806408482661630.sql"
-                    with open(fp, encoding="utf-8", errors="ignore") as f:
-                        lines = f.readlines()
-                        with Pipeline(file_obj_queue) as file_obj:
-                            try:
-                                stmts = ''.join(lines)
-                                # stmts = convert_camel_to_underscore(stmts)
-                                file_obj.parse(stmts, stage)
-                            except Exception as e:
-                                print("third stage failed | ", e)
-                elif stage == ParseStage.fk:
-                    # handle FKs in each `file_obj.memo`
-                    # n.b. according missing referred table name,
-                    #      search if there is matched table object in repo.name2tab and its cols in tab_obj.name2col.
-                    with Pipeline(file_obj_queue) as file_obj:
-                        if len(file_obj.memo) != 0:
-                            for item in file_obj.memo:
-                                tab_name, fk_col_name, ref_tab_name, ref_col_name = item
-                                if tab_name in repo_obj.name2tab \
-                                        and ref_tab_name in repo_obj.name2tab\
-                                        and file_obj.is_fk_ref_valid(tab_name, fk_col_name) \
-                                        and file_obj.is_fk_ref_valid(ref_tab_name, ref_col_name):
-                                    tab_obj = repo_obj.name2tab[tab_name]
-                                    ref_tab_obj = repo_obj.name2tab[ref_tab_name]
-                                    try:
-                                        fk_col_name = get_column_object(tab_obj, fk_col_name)
-                                        ref_col_name = get_column_object(ref_tab_obj, ref_col_name)
-                                    except:
-                                        continue
-                                    fk_obj = File.construct_fk_obj(fk_col_name, ref_tab_obj, ref_col_name)
-                                    tab_obj.fk_list.append(fk_obj)
-                                    # remove handled items in repo_memo
-                                    COUNTER_EXCEPT.minus()
-                                    try:
-                                        repo_memo[file_obj.hashid].remove(item)
-                                    except:
-                                        pass
-                                    print(f"Found FK {tab_obj.hashid}:{tab_obj.tab_name} in {ref_tab_obj.hashid}:{ref_tab_obj.tab_name} in memo")
-                                else:
-                                    print(f"Not found FK {tab_name}:{fk_col_name}:{ref_tab_name}:{ref_col_name} in memo")
-                elif stage == ParseStage.query:
-                    # handle join-query statement
-                    # fp = "/datadrive/yang/exp/data/s3_sql_files_crawled_all_vms/902666163346747082.sql"
-                    stmts = query_stmt_split(fp)
+                            # whatever parse success or failed, append file_obj to queue
+                            if len(file_obj.memo) == 0:
+                                continue
+                            repo_memo[file_obj.hashid] = deepcopy(file_obj.memo)
+            elif stage == ParseStage.insert:
+                # handle INSERT (INTO) clauses
+                # fp = "/datadrive/yang/exp/data/s3_sql_files_crawled_all_vms/8348806408482661630.sql"
+                with open(fp, encoding="utf-8", errors="ignore") as f:
+                    lines = f.readlines()
                     with Pipeline(file_obj_queue) as file_obj:
                         try:
-                            for s in stmts:
-                                if len(s) > 30000:
-                                    print("skipping a long statement")
-                                    continue
-                                parser = QueryParser(file_obj.repo_name2tab, is_debug=False)
-                                try:
-                                    query_obj, check_failed_cases = parser.parse(s)
-                                    # query_obj, unfound_list = parser.parse(s)
-                                    if query_obj:
-                                        repo_query_list.append(query_obj)
-                                        COUNTER_QUERY.add()
-                                    # unfound_tables += unfound_list
-                                    if check_failed_cases:
-                                        all_check_failed_cases.append((fp, check_failed_cases))
-                                except:
-                                    COUNTER_QUERY_EXCEPT.add()
-                                    continue
+                            stmts = ''.join(lines)
+                            # stmts = convert_camel_to_underscore(stmts)
+                            file_obj.parse(stmts, stage)
                         except Exception as e:
-                            print("fifth stage failed | ", e)
+                            print("third stage failed | ", e)
+            elif stage == ParseStage.fk:
+                # handle FKs in each `file_obj.memo`
+                # n.b. according missing referred table name,
+                #      search if there is matched table object in repo.name2tab and its cols in tab_obj.name2col.
+                with Pipeline(file_obj_queue) as file_obj:
+                    lower2name2tab = {k.lower(): (k, v) for k, v in repo_obj.name2tab.items()} \
+                        | {k.lower().rsplit('.', 1)[-1]: (k, v) for k, v in repo_obj.name2tab.items() if '.' in k}
+                    if len(file_obj.memo) != 0:
+                        for item in file_obj.memo:
+                            # TODO: change the dictionary to lower2name2tab
+                            tab_name, fk_col_name, ref_tab_name, ref_col_name = item
+                            # if tab_name in repo_obj.name2tab \
+                            # and ref_tab_name in repo_obj.name2tab\
+                            tab_name = tab_name.lower() if '.' not in tab_name else tab_name.lower().rsplit('.', 1)[-1]
+                            ref_tab_name = ref_tab_name.lower() if '.' not in ref_tab_name else ref_tab_name.lower().rsplit('.', 1)[-1]
+                            if tab_name in lower2name2tab \
+                                    and ref_tab_name in lower2name2tab \
+                                    and file_obj.is_fk_ref_valid(tab_name, fk_col_name) \
+                                    and file_obj.is_fk_ref_valid(ref_tab_name, ref_col_name):
+                                tab_obj = lower2name2tab[tab_name][1]
+                                # tab_obj = repo_obj.name2tab[tab_name]
+                                ref_tab_obj = lower2name2tab[ref_tab_name][1]
+                                # ref_tab_obj = repo_obj.name2tab[ref_tab_name]
+                                try:
+                                    fk_col_objs = get_column_object(tab_obj, fk_col_name)
+                                    ref_col_objs = get_column_object(ref_tab_obj, ref_col_name)
+                                except:
+                                    continue
+                                fk_obj = File.construct_fk_obj(tab_obj, fk_col_objs, ref_tab_obj, ref_col_objs)
+                                tab_obj.fk_list.append(fk_obj)
+                                # remove handled items in repo_memo
+                                COUNTER_EXCEPT.minus()
+                                try:
+                                    repo_memo[file_obj.hashid].remove(item)
+                                except:
+                                    pass
+                                # print(f"Found FK {tab_obj.hashid}:{tab_obj.tab_name} in {ref_tab_obj.hashid}:{ref_tab_obj.tab_name} in memo")
+                            else:
+                                # print(f"Not found FK {tab_name}:{fk_col_name}:{ref_tab_name}:{ref_col_name} in memo")
+                                pass
+            elif stage == ParseStage.query:
+                # handle join-query statement
+                # fp = "/datadrive/yang/exp/data/s3_sql_files_crawled_all_vms/5959383278600372791.sql"
+                stmts = query_stmt_split(fp)
+                # stmts = list()
+                # s = """create or replace procedure apidb.insert_user_allstudies (userid IN NUMBER) is begin for i in (select vu.dataset_presenter_id from apidbtuning.datasetpresenter dp, studyaccess.ValidDatasetUser@acctdbn.profile vu where dp.dataset_presenter_id = vu.dataset_presenter_id MINUS select dataset_presenter_id from studyaccess.ValidDatasetUser@acctdbn.profile vu where vu.user_id = userid ) loop dbms_output.put_line(' Inserting: ' || i.dataset_presenter_id)"""
+                # stmts.append(s)
+                with Pipeline(file_obj_queue) as file_obj:
+                    try:
+                        for s in stmts:
+                            if len(s) > 50000:
+                                # print("skipping a long statement")
+                                continue
+                            # parser = QueryParser(file_obj.repo_name2tab, user_name2tab, is_debug=False)
+                            parser = QueryParser(file_obj.repo_name2tab, is_debug=False)
+                            try:
+                                query_obj = parser.parse(s)
+                                # query_obj, unfound_list = parser.parse(s)
+                                if query_obj:
+                                    repo_query_list.append(query_obj)
+                                    COUNTER_QUERY.add()
+                                # unfound_tables += unfound_list
+                                # if check_failed_cases:
+                                # all_check_failed_cases.append((fp, check_failed_cases))
+                            except:
+                                COUNTER_QUERY_EXCEPT.add()
+                                continue
+                    except Exception as e:
+                        print("fifth stage failed | ", e)
         repo_obj.parsed_file_list = list(file_obj_queue)
-        repo_obj.check_failed_cases = all_check_failed_cases
+        # repo_obj.check_failed_cases = all_check_failed_cases
         # repo_obj.memo = repo_memo
         repo_obj.join_query_list = repo_query_list
         if stage == ParseStage.query:
             print(repo_query_list)
-            print(f"query_succ: {COUNTER_QUERY.num - COUNTER_QUERY_EXCEPT.num}, query_except: {COUNTER_QUERY_EXCEPT.num}")
+            # print(f"query_succ: {COUNTER_QUERY.num - COUNTER_QUERY_EXCEPT.num}, query_except: {COUNTER_QUERY_EXCEPT.num}")
+        if stage == ParseStage.insert:
+            # for k, v in repo_obj.name2tab.items():
+            # user_name2tab[k] = v
+            pass
         # print(f"succ: {COUNTER.num - COUNTER_EXCEPT.num}, except: {COUNTER_EXCEPT.num}")
 
     print("repo parse done")
     # self.repo_obj.repo_url
     # repo_obj.unfound_tables = unfound_tables
-    global TOTAL_TABLE_NUM
-    global REPEAT_NUM
-    global NOT_REPEAT_NUM
-    TOTAL_TABLE_NUM += len(repo_obj.name2tab)
-    print(f"total table nums: {TOTAL_TABLE_NUM}")
-    print(f"repeat table nums: {REPEAT_NUM}, not repeat table nums: {NOT_REPEAT_NUM}")
-    # print_name2tab(repo_obj.name2tab, multi_name2tab)
-    print(f"create table total: {COUNTER_CT.num}, create table succ: {COUNTER_CT_SUCC.num}, create table except: {COUNTER_CT_EXCEPT.num}")
+    # global TOTAL_TABLE_NUM
+    # global REPEAT_NUM
+    # global NOT_REPEAT_NUM
+    # TOTAL_TABLE_NUM += len(repo_obj.name2tab)
+    # print(f"total table nums: {TOTAL_TABLE_NUM}")
+    # print(f"repeat table nums: {REPEAT_NUM}, not repeat table nums: {NOT_REPEAT_NUM}")
+    # print_name2tab(repo_obj, multi_name2tab)
+    # print(f"create table total: {COUNTER_CT.num}, create table succ: {COUNTER_CT_SUCC.num}, create table except: {COUNTER_CT_EXCEPT.num}")
     # print("repo table nums:", len(repo_obj.name2tab))
     return repo_obj if repo_obj.name2tab else None
 
 
-def print_name2tab(repo_name2tab, multi_name2tab):
+def print_name2tab(repo_obj, multi_name2tab):
+    # repo_name2tab = repo_obj.name2tab
+    if not multi_name2tab:
+        return
+    else:
+        has_dropped_tbl = False
+        for tname, tset in multi_name2tab.items():
+            if len(tset) == 1:
+                continue
+            else:
+                has_dropped_tbl = True
+                break
+        if not has_dropped_tbl:
+            return
+    # origin_stdout = sys.stdout
+    with open("multi_tbl_dict.log", 'a+') as f:
+        # sys.stdout = f
+        print('*' * 150, file=f)
+        print(repo_obj.repo_url, file=f)
+        for tname, tset in multi_name2tab.items():
+            if len(tset) == 1:
+                continue
+            print('-' * 120, file=f)
+            print("saved table↓", file=f)
+            print_table_obj(repo_obj.name2tab[tname], f=f)
+            for tobj in tset:
+                if tobj is not repo_obj.name2tab[tname]:
+                    print('-' * 80, file=f)
+                    print("dropped table↓", file=f)
+                    print_table_obj(tobj, f=f)
+                    print(file=f)
+                # print(f"{tname}, table object in multi_name2tab: {tobj}")
+        # sys.stdout = origin_stdout
+        """
+        if tname in repo_name2tab:
+            # print(f"truly saved table object: {repo_name2tab[tname]}")
+            for tobj in tset:
+                if tobj is not repo_name2tab[tname]:
+                    print(f"dropped repeat table object: {tobj}")
+        else:
+            for tobj in tset:
+                pass
+                # print(f"table in multi_name2tab but not in name2tab: {tobj}")
+        """
+    """
     global REPEAT_NUM
     global NOT_REPEAT_NUM
     for _, table_obj in repo_name2tab.items():
@@ -1755,86 +1686,24 @@ def print_name2tab(repo_name2tab, multi_name2tab):
         print('*' * 120)
         print_table_obj(table_obj)
         print()
-        if len(multi_name2tab[table_obj.tab_name]) > 1:
+        if len(multi_name2tab[table_obj.tab_name]) != 1:
             print("multi_name2tab↓")
             for table in multi_name2tab[table_obj.tab_name]:
                 REPEAT_NUM += 1
                 if table is not table_obj:
-                    print("repeat table↓")
+                    print("dropped repeat table↓")
                     print_table_obj(table)
                     lost_cov_nums = calc_col_cov(table_lhs=table_obj, table_rhs=table)
                     total_lost_col_nums += lost_cov_nums
                     # print(f"total col nums: {len(table_obj.name2col)}, lost col nums: {lost_col_nums}")
+                elif table is table_obj:
+                    print("saved table↑")
             print(f"repeat table total col nums: {len(table_obj.name2col)}, \
                 repeat table total lost col nums: {total_lost_col_nums}")
         elif len(multi_name2tab[table_obj.tab_name]) == 1:
             NOT_REPEAT_NUM += 1
-            print("not repeat table↑")
-
-
-def dump_parsed_files(parsed_file_list):
-    """Dump parsed sql list to a local pickle file.
-
-    Params
-    ------
-    - parsed_file_list: list
-
-    Returns
-    -------
-    - None
+            print("saved table↑")
     """
-    pickle_output = os.path.join(OUTPUT_FOLDER, "s4_parsed_sql_file_list.pkl")
-    pickle.dump(parsed_file_list, open(pickle_output, "wb"))
-
-    # dump all the parsed sql statements to a csv file
-    lm_output = os.path.join(OUTPUT_FOLDER, "s4_parsed_sql_into_lm.csv")
-    with open(lm_output, 'w') as f:
-        for f_obj in parsed_file_list:
-            for tab_name in f_obj.name2tab:
-                tab_obj = f_obj.name2tab[tab_name]
-                lines = tab_obj.print_for_lm_multi_line()
-                for l in lines:
-                    f.write(l + '\n')
-
-
-class Pipeline:
-    """Pipeline class for automatically manage queue's in & out."""
-
-    def __init__(self, q_obj):
-        self.q_obj = q_obj
-        self.f_obj_tmp = self.q_obj.popleft()
-
-    def __enter__(self):
-        return self.f_obj_tmp
-
-    def __exit__(self, type, value, traceback):
-        self.q_obj.append(self.f_obj_tmp)
-
-
-class Timeout:
-    """Timeout class for timing and avoiding long-time string processing."""
-
-    def __init__(self, seconds=1, error_message="Timeout"):
-        self.seconds = seconds
-        self.error_message = error_message
-
-    def handle_timeout(self, signum, frame):
-        raise TimeoutError(self.error_message)
-
-    def __enter__(self):
-        signal.signal(signal.SIGALRM, self.handle_timeout)
-        signal.alarm(self.seconds)
-
-    def __exit__(self, type, value, traceback):
-        signal.alarm(0)
-
-
-def test_timeout():
-    try:
-        with Timeout(seconds=3):
-            time.sleep(4)
-    except Exception as e:
-        print(e)
 
 
 if __name__ == "__main__":

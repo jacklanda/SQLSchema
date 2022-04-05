@@ -9,8 +9,12 @@ import time
 import glob
 import pickle
 from random import sample, shuffle
-from multiprocessing import Pool
+from multiprocessing import Manager, Pool
+from concurrent.futures import TimeoutError
 
+from pebble import ProcessPool
+
+from utils import get_chunks
 from s4_parse_sql import parse_repo_files
 
 
@@ -284,7 +288,7 @@ def aggregate(fpath="data/s2_sql_file_list.txt", max_repo_limit=9999999):
     user_nums = list()
     repo_dict = pickle.load(open("data/samples/repo_dict.pkl", "rb"))
     for repo_url, file_set in repo_dict.items():
-        if repo_url == "https://github.com/SamuelVeloce/gps":
+        if repo_url == "https://github.com/OdyseeTeam/commentron":
             repo_obj = Repository(repo_url, file_set)
             repo_list.append(repo_obj)
             break
@@ -304,9 +308,9 @@ def aggregate(fpath="data/s2_sql_file_list.txt", max_repo_limit=9999999):
             repo_list.append(repo_obj)
         repo_obj = Repository(repo_url, list(file_set))
         repo_list.append(repo_obj)
+    shuffle(repo_list)
+    print(f"Totally aggregate repo nums: {len(repo_list)}")
     """
-    # shuffle(repo_list)
-    # print(f"Totally aggregate repo nums: {len(repo_list)}")
 
     # return sample(repo_list, 11000)
     # """
@@ -321,21 +325,52 @@ def aggregate(fpath="data/s2_sql_file_list.txt", max_repo_limit=9999999):
 
 
 if __name__ == "__main__":
+    manager = Manager()
     result_obj_list = list()
     parsed_repo_list = list()
+    # user_name2tab = manager.dict()
     repo_list = aggregate()
     sys.setrecursionlimit(100000000)
 
     batch_num = 0
+    parsed_repo_nums = 0
     pkl_fname_base = f"s4_parsed_sql_repo_list_{time.strftime('%Y_%m_%d_%H:%M:%S')}"
     pkl_dir = make_dir(pkl_fname_base)
 
     if PARALLEL:
+        def task_done(future):
+            try:
+                result_obj = future.result()
+                result_obj_list.append(result_obj)
+            except TimeoutError as error:
+                print("Function took longer than %d seconds" % error.args[1])
+            except Exception as error:
+                print("Function raised %s" % error)
+
+        for i, batch in enumerate(get_chunks(repo_list, 110000)):
+            with ProcessPool(max_workers=32, max_tasks=64) as pool:
+                for repo in batch:
+                    future = pool.schedule(parse_repo_files, (repo,), timeout=600)
+                    future.add_done_callback(task_done)
+                # result_obj_list.clear()
+                # print(f"parse a batch({len(batch)}) of repos done")
+            results = [r for r in result_obj_list if r is not None]
+            # dump_repo_list(results, pkl_dir, pkl_fname_base + ".pkl")
+            dump_repo_list(results, pkl_dir, pkl_fname_base + '_' + str(i) + ".pkl")
+            result_obj_list.clear()
+        merge_pkl_files(pkl_dir)
+
+        # merge_pkl_files(pkl_dir)
+        """
         pool = Pool(32)
         for i, repo in enumerate(repo_list):
-            result_obj = pool.apply_async(parse_repo_files, (repo,))
+            # repo_user = repo.repo_url.rsplit('/', 1)[0].rsplit('/', 1)[1]
+            # if repo_user not in user_name2tab:
+            # user_name2tab[repo_user] = manager.dict()  # dict[user:dict[table_name:Table]]
+            # result_obj = pool.apply_async(parse_repo_files, (repo, user_name2tab[repo_user]))
+            result_obj = pool.apply_async(parse_repo_files, (repo, ))
             result_obj_list.append(result_obj)
-            if i % 110000 == 0:
+            if i % 220000 == 0:
                 batch_num += 1
                 results = (result_obj.get() for result_obj in result_obj_list)
                 parsed_repo_list = [r for r in results if r is not None]
@@ -348,9 +383,13 @@ if __name__ == "__main__":
                 dump_repo_list(parsed_repo_list, pkl_dir, pkl_fname_base + '_' + str(batch_num) + ".pkl")
                 result_obj_list.clear()
         merge_pkl_files(pkl_dir)
+        """
     else:
+        shuffle(repo_list)
+        print(f"Totally aggregate repo nums: {len(repo_list)}")
         for i, repo in enumerate(repo_list):
             print("=" * 30, f'repo:{i+1}', repo.repo_url, "=" * 30)
+            # parsed_repo = parse_repo_files(repo, user_name2tab)
             parsed_repo = parse_repo_files(repo)
             """
             if parsed_repo is not None:
@@ -371,5 +410,5 @@ if __name__ == "__main__":
                     print("conditions:", join_obj.conditions)
                     print("extract from:", join_obj.extract_from)
             """
-            parsed_repo_list.append(parsed_repo)
-            dump_repo_list(parsed_repo_list, pkl_dir, pkl_fname_base + '_' + str(i) + ".pkl")
+            # parsed_repo_list.append(parsed_repo)
+            # dump_repo_list(parsed_repo_list, pkl_dir, pkl_fname_base + '_' + str(i) + ".pkl")
