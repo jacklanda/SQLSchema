@@ -61,6 +61,7 @@ from utils import (
     calc_col_cov,
     split_string,
     norm_colname,
+    open_sql_file,
     query_stmt_split,
     Counter,
     Timeout,
@@ -385,8 +386,14 @@ class File:
                     # handle: CONSTRAINT [constraint_name]
                     #         FOREIGN KEY ([fk_cols]) REFERENCES [ref_table] ([ref_cols])
                     elif "foreign key" in clause_lower:
-                        pattern = REGEX_DICT("constraint_fk_create_table")
                         try:
+                            pattern = REGEX_DICT("constraint_fk_create_table")
+                            result = re.findall(pattern, clause, re.IGNORECASE)[0]
+                        except Exception as e:
+                            if " on " in clause:
+                                pattern = "foreign\s+key\s*\((.*?)\)\s*references\s+([`|'|\"]?.*[`|'|\"]?)\s+on"
+                            else:
+                                pattern = "foreign\s+key\s*\((.*?)\)\s*references\s+([`|'|\"]?.*[`|'|\"]?)"
                             result = re.findall(pattern, clause, re.IGNORECASE)[0]
                         except:
                             continue
@@ -394,6 +401,10 @@ class File:
                             fk_cols = fmt_str(result[0])
                             fk_ref_tab = fmt_str(result[1])
                             fk_ref_cols = fmt_str(result[2])
+                        elif len(result) == 2:
+                            fk_cols = fmt_str(result[0])
+                            fk_ref_tab = fmt_str(result[1])
+                            fk_ref_cols = fk_cols
                         else:
                             # raise Exception("CONSTRAINT FOREIGN KEY def error: match number must be 3!")
                             # print("CONSTRAINT FOREIGN KEY def error: match number must be 3!")
@@ -530,8 +541,11 @@ class File:
                     # n.b. Slightly Similar to primary key, foreign key
                     #      has two different semantics according its keyword position.
                     #      However, one of the variant CONSTRAINT ... has been handled in front.
-                    pattern = REGEX_DICT("startwith_fk_create_table")
                     try:
+                        pattern = REGEX_DICT("startwith_fk_create_table")
+                        result = re.findall(pattern, clause, re.IGNORECASE)[0]
+                    except Exception as e:
+                        pattern = REGEX_DICT("startwith_fk_create_table_backup")
                         result = re.findall(pattern, clause, re.IGNORECASE)[0]
                     except:
                         continue
@@ -541,6 +555,10 @@ class File:
                         fk_cols = fmt_str(result[0])
                         fk_ref_tab = fmt_str(result[1])
                         fk_ref_cols = fmt_str(result[2])
+                    elif len(result) == 2:
+                        fk_cols = fmt_str(result[0])
+                        fk_ref_tab = fmt_str(result[1])
+                        fk_ref_cols = fk_cols
                     else:
                         # raise Exception("FOREIGN KEY def error: match number must be 3!")
                         # print("FOREIGN KEY def error: match number must be 3!")
@@ -729,6 +747,44 @@ class File:
                         # add col_obj into table_obj
                         tab_obj.insert_col(col_obj)
                         tab_obj.col_name_seq.append(col_name)
+
+                        if "foreign key references" in clause_lower:
+                            try:
+                                pattern = "foreign\s+key\s+references\s+(.*?)\s*\((.*?)\)\s+"
+                                result = re.findall(pattern, clause, re.IGNORECASE)[0]
+                            except Exception as e:
+                                if " on " in clause:
+                                    pattern = "foreign\s+key\s+references\s+(.*)\s+on"
+                                else:
+                                    pattern = "foreign\s+key\s+references\s+(.*)"
+                                result = re.findall(pattern, clause, re.IGNORECASE)
+                            except:
+                                continue
+                            if len(result) == 2:
+                                fk_cols = col_name
+                                fk_ref_tab, fk_ref_cols = result
+                                fk_ref_tab = fmt_str(fk_ref_tab)
+                                fk_ref_cols = fmt_str(fk_ref_cols)
+                            elif len(result) == 1:
+                                fk_cols = col_name
+                                fk_ref_tab = fmt_str(result[0])
+                                fk_ref_cols = fk_cols
+                            if self.is_fk_ref_valid(tab_obj, fk_cols) and \
+                                    self.is_fk_ref_valid(fk_ref_tab, fk_ref_cols):
+                                try:
+                                    lower2name2tab = {k.lower(): (k, v) for k, v in self.repo_name2tab.items()} | {k.lower().rsplit('.', 1)[-1]: (k, v) for k, v in self.repo_name2tab.items() if '.' in k}
+                                    fk_ref_tab = fk_ref_tab.lower() if '.' not in fk_ref_tab else fk_ref_tab.lower().rsplit('.', 1)[-1]
+                                    ref_tab_obj = lower2name2tab[fk_ref_tab][1]
+                                    # ref_tab_obj = self.repo_name2tab[fk_ref_tab]
+                                    fk_cols = get_column_object(tab_obj, fk_cols)
+                                    fk_ref_cols = get_column_object(ref_tab_obj, fk_ref_cols)
+                                    fk_obj = File.construct_fk_obj(tab_obj, fk_cols, ref_tab_obj, fk_ref_cols)
+                                    tab_obj.fk_list.append(fk_obj)
+                                except:
+                                    continue
+                            else:
+                                self.memo.add((tab_name, fk_cols, fk_ref_tab, fk_ref_cols))
+                                COUNTER_EXCEPT.add()
                 else:
                     if len(clause.split()) == 1:
                         # print(f"too few cols in clause to parse! | {clause}")
@@ -1206,6 +1262,7 @@ class File:
                     if ' ' in col_name:
                         continue
                     tab_obj.name2col[col_name] = Column(col_name, col_type)
+                    tab_obj.col_name_seq.append(col_name)
                 else:
                     # print(f"Unhandled operation on alter table: {clause}")
                     pass
@@ -1302,6 +1359,7 @@ class File:
                 continue
             if col.lower() not in lower2name2col:
                 table_obj.name2col[col] = Column(col)
+                table_obj.col_name_seq.append(col)
 
     def parse_one_statement(self, stmt):
         """Parse single SQL statement splitted by semicolon `;`
@@ -1488,55 +1546,57 @@ def parse_repo_files(repo_obj):
     for stage in ParseStage:
         print('=' * 30, stage, '=' * 30)
         for fp in fpath_list:
-            # with Timeout(3):
             if stage == ParseStage.create:
                 print('-' * 90)
                 print(f"{stage}:\t{fp}")
             if stage == ParseStage.create:
                 # handle CREATE TABLE clauses
                 # fp = "/datadrive/yang/exp/data/s3_sql_files_crawled_all_vms/4986571943599317614.sql"
-                with open(fp, encoding="utf-8", errors="ignore") as f:
-                    hashid = fp.split('/')[-1]
-                    lines = f.readlines()
-                    file_obj = File(hashid, repo_obj.name2tab, multi_name2tab)
+                # with open(fp, encoding="utf-8", errors="ignore") as f:
+                lines = open_sql_file(fp)
+                hashid = fp.split('/')[-1]
+                # lines = f.readlines()
+                file_obj = File(hashid, repo_obj.name2tab, multi_name2tab)
+                try:
+                    stmts = ''.join(lines)
+                    # stmts = convert_camel_to_underscore(stmts)
+                    file_obj.parse(stmts, stage)
+                except Exception as e:
+                    print("first stage failed | ", e)
+                finally:
+                    # whatever parse success or failed, push file_obj into queue
+                    file_obj_queue.append(file_obj)
+                    # repo_memo[file_obj.hashid] = deepcopy(file_obj.memo)
+            elif stage == ParseStage.alter:
+                # handle ALTER TABLE clauses
+                # with open(fp, encoding="utf-8", errors="ignore") as f:
+                lines = open_sql_file(fp)
+                # lines = f.readlines()
+                with Pipeline(file_obj_queue) as file_obj:
                     try:
                         stmts = ''.join(lines)
                         # stmts = convert_camel_to_underscore(stmts)
                         file_obj.parse(stmts, stage)
                     except Exception as e:
-                        print("first stage failed | ", e)
+                        print("second stage failed | ", e)
                     finally:
-                        # whatever parse success or failed, push file_obj into queue
-                        file_obj_queue.append(file_obj)
-                        # repo_memo[file_obj.hashid] = deepcopy(file_obj.memo)
-            elif stage == ParseStage.alter:
-                # handle ALTER TABLE clauses
-                with open(fp, encoding="utf-8", errors="ignore") as f:
-                    lines = f.readlines()
-                    with Pipeline(file_obj_queue) as file_obj:
-                        try:
-                            stmts = ''.join(lines)
-                            # stmts = convert_camel_to_underscore(stmts)
-                            file_obj.parse(stmts, stage)
-                        except Exception as e:
-                            print("second stage failed | ", e)
-                        finally:
-                            # whatever parse success or failed, append file_obj to queue
-                            if len(file_obj.memo) == 0:
-                                continue
-                            repo_memo[file_obj.hashid] = deepcopy(file_obj.memo)
+                        # whatever parse success or failed, append file_obj to queue
+                        if len(file_obj.memo) == 0:
+                            continue
+                        repo_memo[file_obj.hashid] = deepcopy(file_obj.memo)
             elif stage == ParseStage.insert:
                 # handle INSERT (INTO) clauses
                 # fp = "/datadrive/yang/exp/data/s3_sql_files_crawled_all_vms/8348806408482661630.sql"
-                with open(fp, encoding="utf-8", errors="ignore") as f:
-                    lines = f.readlines()
-                    with Pipeline(file_obj_queue) as file_obj:
-                        try:
-                            stmts = ''.join(lines)
-                            # stmts = convert_camel_to_underscore(stmts)
-                            file_obj.parse(stmts, stage)
-                        except Exception as e:
-                            print("third stage failed | ", e)
+                # with open(fp, encoding="utf-8", errors="ignore") as f:
+                lines = open_sql_file(fp)
+                # lines = f.readlines()
+                with Pipeline(file_obj_queue) as file_obj:
+                    try:
+                        stmts = ''.join(lines)
+                        # stmts = convert_camel_to_underscore(stmts)
+                        file_obj.parse(stmts, stage)
+                    except Exception as e:
+                        print("third stage failed | ", e)
             elif stage == ParseStage.fk:
                 # handle FKs in each `file_obj.memo`
                 # n.b. according missing referred table name,
@@ -1593,7 +1653,8 @@ def parse_repo_files(repo_obj):
                             # parser = QueryParser(file_obj.repo_name2tab, user_name2tab, is_debug=False)
                             parser = QueryParser(file_obj.repo_name2tab, is_debug=False)
                             try:
-                                query_obj = parser.parse(s)
+                                with Timeout(10):
+                                    query_obj = parser.parse(s)
                                 # query_obj, unfound_list = parser.parse(s)
                                 if query_obj:
                                     repo_query_list.append(query_obj)
@@ -1620,6 +1681,7 @@ def parse_repo_files(repo_obj):
         # print(f"succ: {COUNTER.num - COUNTER_EXCEPT.num}, except: {COUNTER_EXCEPT.num}")
 
     print("repo parse done")
+    repo_obj.name2tab = {k: v for (k, v) in repo_obj.name2tab.items() if v.name2col}
     # self.repo_obj.repo_url
     # repo_obj.unfound_tables = unfound_tables
     # global TOTAL_TABLE_NUM

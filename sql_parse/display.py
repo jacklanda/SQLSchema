@@ -12,10 +12,10 @@ from sample import print_table_obj, print_query_obj, print_fk_obj
 if __name__ == "__main__":
     coltype_freq_dict = dict()
     coltype_freq_dict["None"] = 0
-    pickle_fpath = "data/s4_sql_files_parsed/s4_parsed_sql_repo_list_2022_04_05_05:37:05/s4_parsed_sql_repo_list_2022_04_05_05:37:05.pkl"
+    pickle_fpath = "data/s4_sql_files_parsed/s4_parsed_sql_repo_list_2022_04_12_08:17:37/s4_parsed_sql_repo_list_2022_04_12_08:17:37.pkl"
     with open(pickle_fpath, "rb") as fp:
         repo_list = load(fp)
-    total_file_obj_count = 0
+    # total_file_obj_count = 0
     not_empty_count = 0
     total_table_count = 0
     not_empty_table_count = 0
@@ -23,6 +23,11 @@ if __name__ == "__main__":
     have_fk_table_count = 0
     have_pk_table_count = 0
     have_key_table_count = 0
+    total_pk_nums = 0
+    total_fk_nums = 0
+    total_index_nums = 0
+    total_uniq_nums = 0
+    total_key_nums = 0
     total_join_count = 0
     total_binary_join_count = 0
     total_condition_count = 0
@@ -37,7 +42,7 @@ if __name__ == "__main__":
         print(f"repo:{i+1}")
         print(repo.repo_url)
         not_empty_count += 1
-        total_file_obj_count += len(repo.parsed_file_list)
+        # total_file_obj_count += len(repo.parsed_file_list)
 
         # if(not_empty_count % 100 == 0):
         # print(not_empty_count)
@@ -77,44 +82,60 @@ if __name__ == "__main__":
     # print(f"{}")
     # print("avg binary join in each query:", total_binary_join_count / join_query_count)
     # print("avg condition in each query:", total_condition_count / join_query_count)
-    """
+    # """
             if table_object.fk_list:
                 print()
                 for fk in table_object.fk_list:
+                    total_fk_nums += 1
                     # print(f"fk_cols: {fk.fk_cols} | ref_table: {fk.ref_tab} | ref_cols: {fk.ref_cols}")
-                    print_fk_obj(table_object.tab_name, fk)
-                    print()
-                have_fk_table_count += 1
+                    # print_fk_obj(table_object.tab_name, fk)
+                    # print()
+                # have_fk_table_count += 1
             if table_object.key_list:
                 print()
                 for key in table_object.key_list:
                     if key.key_type == "PrimaryKey":
-                        have_pk_table_count += 1
-                    print(f"key_type: {key.key_type} | key_col_list: {key.key_col_list}")
-                have_key_table_count += 1
+                        total_pk_nums += 1
+                        # have_pk_table_count += 1
+                    elif key.key_type == "CandidateKey":
+                        total_key_nums += 1
+                    elif "Unique" in key.key_type:
+                        total_uniq_nums += 1
+                    # print(f"key_type: {key.key_type} | key_col_list: {key.key_col_list}")
+                # have_key_table_count += 1
+            if table_object.index_list:
+                print()
+                for idx in table_object.index_list:
+                    total_index_nums += 1
             print()
             print()
-    """
+    # """
     # print(f"table_name: {table_name}")
     # if table_object.fk_list:
     # print(repo.repo_url)
     # for fk in table_object.fk_list:
     # print_fk_obj(fk)
     # """
-    coltype_freq_dict = {k: v for k, v in sorted(coltype_freq_dict.items(), key=lambda item: item[1], reverse=True)}
     # pprint(table_object.fk_list)  # print fk list in table
     # pprint(table_object.key_list)  # print key list in table
     # pprint(table_object.name2col)  # print column list in table
     print(f"Totally not empty repo: {not_empty_count}")
-    print(f"Totally file object nums: {total_file_obj_count}")
+    # print(f"Totally file object nums: {total_file_obj_count}")
     print(f"Totally table count: {total_table_count}")
     print(f"Totally not empty table: {not_empty_table_count}")
     print(f"Totally join query count: {join_query_count}")
     # print(f"Totally have pk table nums: {have_pk_table_count}")
     # print(f"Totally have fk table nums: {have_fk_table_count}")
     # print(f"Totally have key table nums: {have_key_table_count}")
+    print(f"Totally pk nums: {total_pk_nums}")
+    print(f"Totally fk nums: {total_fk_nums}")
+    print(f"Totally key nums: {total_key_nums}")
+    print(f"Totally index nums: {total_index_nums}")
+    print(f"Totally unique nums: {total_uniq_nums}")
     print(f"Totally column nums: {total_column_nums}")
     print(f"Totally column nums with type: {have_type_column_nums}")
     print()
-    for col, freq in coltype_freq_dict.items():
-        print(col, freq)
+
+    # coltype_freq_dict = {k: v for k, v in sorted(coltype_freq_dict.items(), key=lambda item: item[1], reverse=True)}
+    # for col, freq in coltype_freq_dict.items():
+    # print(col, freq)

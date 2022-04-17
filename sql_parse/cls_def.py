@@ -3,6 +3,7 @@
 # @email: v-yangliu4@microsoft.com
 
 from enum import Enum, unique
+import utils
 
 TYPE2BASETYPE = {"Numeric": 1}
 
@@ -298,7 +299,7 @@ class Column:
         return str_list
 
     def cleansed_col_name(self):
-        return self.col_name.strip('\'`"[]')
+        return self.col_name.strip('@\'`"[]')
 
 
 class Table:
@@ -324,6 +325,8 @@ class Table:
         self._index_list = index_list
         self._name2col = dict()
         self._col_name_seq = list()  # log the order in which cols are added into the table (leftness etc. matter)
+        self._col_freq_aggregate = dict()
+        self._col_freq_groupby = dict()
 
     @property
     def tab_name(self):
@@ -359,41 +362,121 @@ class Table:
     def col_name_seq(self):
         return self._col_name_seq
 
+    @property
+    def col_freq_aggregate(self):
+        return self._col_freq_aggregate
+
+    @property
+    def col_freq_groupby(self):
+        return self._col_freq_groupby
+
     def insert_col(self, col):
         """Insert a new column into the table object."""
         if col.col_name in self.name2col:
             # raise Exception(f"col already exists in table: {col.col_name}")
             return
         self.name2col[col.col_name] = col
-
+        
     def print_for_lm_multi_line(self):
-        """Generate text for language modeling."""
-        # iterate cols in the order in which they are added
+        file_name = self._hashid
+        table_name = self.cleansed_table_name()
+
+        # if(file_name == '8634986411516259819.sql'):
+        #     debug = 1
+
+        # if(file_name == '6400924341428078254.sql'):
+        #     debug = 1
+        components = ['', '', '', '']
+        components[0] = file_name
+        components[1] = utils.convert_camel_to_underscore(table_name)
+
+        # get keys
+        unique_key_col_names_for_unique = set()
+        pk_col_names_for_notnull = set()
+        for key in self.key_list:
+            # first populate unique_key_col_names for [NOTNULL]
+            # if primary key, all columns (even composite) need to be not null (the same is not true for Unique Index per https://stackoverflow.com/questions/386040/whats-wrong-with-nullable-columns-in-composite-primary-keys)
+            if(key.key_type == 'PrimaryKey'):
+                for key_col in key.key_col_list:
+                    pk_col_names_for_notnull.add(key_col.col_name)
+
+            # next populate unique_key_col_names for [UNIQUE]
+            # index does not mean the cols have to be unique, skip
+            if(key.key_type == 'Index'):
+                # print('Index type')
+                continue  # index, do nothing
+            # CandidateKey corresponds to "Key" keyword in sql (MySQL), which however does not mean uniqueness (https://stackoverflow.com/questions/924265/what-does-the-key-keyword-mean)
+            if(key.key_type == 'CandidateKey'):
+                # print('CandidateKey')
+                continue  # this does mean the col has to be unique, see 8948003700246411308.sql, table pregled, https://stackoverflow.com/questions/924265/what-does-the-key-keyword-mean
+
+            # unique key and unique index may still have NULLs， per https://stackoverflow.com/questions/767657/how-do-i-create-a-unique-constraint-that-also-allows-nulls
+            if(key.key_type == 'UniqueKey' or key.key_type == 'UniqueIndex'):
+                continue
+
+            # other keys with more than one col? then the col itself cannot be assumed unique
+            if(len(key.key_col_list) > 1):
+                continue
+
+            # add the unique columns to unique_key_col_names, so that we can add [UNIQUE] label when we print
+            for key_col in key.key_col_list:
+                if(len(key.key_col_list) > 1):
+                    debug = 1
+                unique_key_col_names_for_unique.add(key_col.col_name)
+
+        # there are cases for SQLLite that may have multiple PK defined on same col,
+        # e.g., 4737724513843675438.sql, table `message', which has two PK defined on two cols in the same table
+        all_pks_same_table = [key for key in self.key_list if key.key_type == 'PrimaryKey']
+        has_multiple_pk_on_same_table = len(all_pks_same_table) > 1
+
+        # this is equivalent to Column's print_for_lm_components(), though rewritten here
         col_lm_str_list = list()
         for col_name in self.col_name_seq:
             col_obj = self.name2col[col_name]
-            components = col_obj.print_for_lm_components()
-            components.insert(0, self.hashid)  # add file-name
-            components.insert(1, self.cleansed_table_name())  # add file-name
+            notnull = (col_obj.is_notnull or (col_name in pk_col_names_for_notnull))
+            # only if when there are no >1 PK defined on the same table, we treat such single-col PK as valid for UNIQUE
+            unique = (not has_multiple_pk_on_same_table) and (col_name in unique_key_col_names_for_unique)
 
-            # skip line if components[0] (table-name) has bad punct (likely bad sql parse)
-            if ' ' in components[1] or ',' in components[1]:
-                print("skipping line for bad parse (punct in tab_name): " + components[1])
-                continue
-            # skip line if components[0] (table-name) has bad punct (likely bad sql parse)
-            if ' ' in components[2] or ',' in components[2]:
-                print("skipping line for bad parse (punct in col_name): " + components[2])
-                continue
+            label = '[UNIQUE]' if unique else '[NOTNULL]' if notnull else ''
+            components[2] = utils.convert_camel_to_underscore(col_obj.cleansed_col_name())
+            components[3] = label
+
+            # replace possible ' ' and ',' to '_', to avoid CSV parsing issue
+            # also make sure that all variables are single tokens
+            components[1] = components[1].replace(' ', '_').replace(',', '_')
+            components[2] = components[2].replace(' ', '_').replace(',', '_')
+
             col_lm_str_list.append(','.join(components))
-
         return col_lm_str_list
+
+    # def print_for_lm_multi_line(self):
+    #     """Generate text for language modeling."""
+    #     # iterate cols in the order in which they are added
+    #     col_lm_str_list = list()
+    #     for col_name in self.col_name_seq:
+    #         col_obj = self.name2col[col_name]
+    #         components = col_obj.print_for_lm_components()
+    #         components.insert(0, self.hashid)  # add file-name
+    #         components.insert(1, self.cleansed_table_name())  # add file-name
+
+    #         # skip line if components[0] (table-name) has bad punct (likely bad sql parse)
+    #         if ' ' in components[1] or ',' in components[1]:
+    #             print("skipping line for bad parse (punct in tab_name): " + components[1])
+    #             continue
+    #         # skip line if components[0] (table-name) has bad punct (likely bad sql parse)
+    #         if ' ' in components[2] or ',' in components[2]:
+    #             print("skipping line for bad parse (punct in col_name): " + components[2])
+    #             continue
+    #         col_lm_str_list.append(','.join(components))
+
+    #     return col_lm_str_list
 
     def cleansed_table_name(self):
         """Clean table name."""
         clean_tab_name = self.tab_name
         if '.' in clean_tab_name:
             clean_tab_name = clean_tab_name.split('.')[1]
-        return clean_tab_name.strip('\'`"[]')
+        return clean_tab_name.strip('#@\'`"[]')
 
 
 class Pipeline:

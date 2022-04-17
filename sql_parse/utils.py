@@ -9,11 +9,15 @@ import glob
 import signal
 from pprint import pprint
 from random import sample
+from encodings import aliases
 from dataclasses import dataclass
 
 import sqlparse
+from bs4 import UnicodeDammit
 
 BINARY_OP = ["=", "<", ">", "<=", ">="]
+
+CHARSET_LIST = list(set([v for _, v in aliases.aliases.items()]))
 
 
 class ColumnTypeDict:
@@ -318,6 +322,7 @@ class RegexDict:
         "constraint_fk_create_table": "foreign\s+key\s*.*?\((.*?)\)\s*references\s*([`|'|\"]?.*?[`|'|\"]?)\s*\((.*?)\)",
         "constraint_unique_create_table": "\((.*?)\)",
         "startwith_fk_create_table": "foreign\s*key\s*.*?\((.*?)\)\s*references\s*([`|'|\"]?.*?[`|'|\"]?)\s*\((.*?)\)",
+        "startwith_fk_create_table_backup": "foreign\s*key\s*.*?\((.*?)\)\s*references\s*(.*?)\s+on",
         "startwith_uk_create_table": "unique\s*key\s*.*?\((.*?)\)",
         "candidate_key_create_table": "\((.*)\)",
         "startwith_ui_create_table": "unique\s+index\s+([`|'|\"]?.*?[`|'|\"]?)\s*\((.*?)\)",
@@ -464,7 +469,7 @@ def convert_camel_to_underscore(s):
     if not s:
         return s
     res = [s[0].lower()]
-    within_upper = True
+    within_upper = False
     for i, c in enumerate(s[1:], start=1):  # s[1:]:
         # encounter first upper, insert "_" and lower char
         if (within_upper == False and c in ('ABCDEFGHIJKLMNOPQRSTUVWXYZ')):
@@ -492,35 +497,36 @@ def query_stmt_split(fpath):
 
     split_by_newline = list()
     split_by_semicolon = list()
-    with open(fpath, "r", errors="ignore") as fp:
-        lines = fp.readlines()
-        stmt = ""
-        for line in lines:
-            if len(line.strip()) == 0:
-                if stmt.strip() != "":
-                    split_by_newline.append(stmt)
-                stmt = ""
-                continue
-            stmt += line
-        """
-        if stmt not in split_by_newline:
-            split_by_newline.append(stmt)
-        """
-        for stmt in split_by_newline:
-            sub_stmts = stmt.split(';')
-            try:
-                with Timeout(1):
-                    split_by_semicolon += [sqlparse.format(s.strip(), strip_comments=True)
-                                           for s in sub_stmts
-                                           if s != '\n'
-                                           and "select " in s.lower()
-                                           and "from " in s.lower()
-                                           and (("join " in s.lower())
-                                                or ("where " in s.lower() and from_multitables(s.lower())))]
-            except:
-                continue
+    # with open(fpath, "r", errors="ignore") as fp:
+    lines = open_sql_file(fpath)
+    # lines = fp.readlines()
+    stmt = ""
+    for line in lines:
+        if len(line.strip()) == 0:
+            if stmt.strip() != "":
+                split_by_newline.append(stmt)
+            stmt = ""
+            continue
+        stmt += line
+    # """
+    if stmt not in split_by_newline:
+        split_by_newline.append(stmt)
+    # """
+    for stmt in split_by_newline:
+        sub_stmts = stmt.split(';')
+        try:
+            with Timeout(3):
+                split_by_semicolon += [sqlparse.format(s.strip(), strip_comments=True)
+                                       for s in sub_stmts
+                                       if s != '\n'
+                                       and "select " in s.lower()
+                                       and "from " in s.lower()
+                                       and (("join " in s.lower())
+                                            or ("where " in s.lower() and from_multitables(s.lower())))]
+        except:
+            continue
 
-        stmts = [' '.join(s.split()) for s in split_by_semicolon]
+    stmts = [' '.join(s.split()) for s in split_by_semicolon]
 
     # return [convert_camel_to_underscore(s) for s in stmts if any(op in s for op in BINARY_OP)]
     return [s for s in stmts if any(op in s for op in BINARY_OP)]
@@ -540,6 +546,33 @@ def get_chunks(lst, n):
     """Yield successive n-sized chunks from lst."""
     for i in range(0, len(lst), n):
         yield lst[i:i + n]
+
+
+def open_sql_file(fpath):
+    # print("open a sql file")
+    try:
+        with open(fpath, encoding="utf-8", errors="strict") as f:
+            return f.readlines()
+    except UnicodeError:
+        # print("sql file open failed with utf8")
+        blob = open(fpath, "rb").read()
+        charset = UnicodeDammit(blob).original_encoding
+        if charset in CHARSET_LIST:
+            with open(fpath, encoding=charset, errors="strict") as f:
+                return f.readlines()
+    except UnicodeError:
+        for charset in CHARSET_LIST:
+            try:
+                with open(fpath, encoding=charset, errors="strict") as f:
+                    return f.readlines()
+            except UnicodeError:
+                pass
+    # print(f"all charset parse fail at: {fpath}")
+    try:
+        with open(fpath, encoding="utf-8", errors="ignore") as f:
+            return f.readlines()
+    except:
+        return list()
 
 
 if __name__ == "__main__":
