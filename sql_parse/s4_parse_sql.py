@@ -1640,7 +1640,7 @@ def parse_repo_files(repo_obj):
             elif stage == ParseStage.query:
                 # handle join-query statement
                 # fp = "/datadrive/yang/exp/data/s3_sql_files_crawled_all_vms/5959383278600372791.sql"
-                stmts = query_stmt_split(fp)
+                stmts = query_stmt_split(fp, filter_join_query=False)
                 # stmts = list()
                 # s = """create or replace procedure apidb.insert_user_allstudies (userid IN NUMBER) is begin for i in (select vu.dataset_presenter_id from apidbtuning.datasetpresenter dp, studyaccess.ValidDatasetUser@acctdbn.profile vu where dp.dataset_presenter_id = vu.dataset_presenter_id MINUS select dataset_presenter_id from studyaccess.ValidDatasetUser@acctdbn.profile vu where vu.user_id = userid ) loop dbms_output.put_line(' Inserting: ' || i.dataset_presenter_id)"""
                 # stmts.append(s)
@@ -1654,7 +1654,7 @@ def parse_repo_files(repo_obj):
                             parser = QueryParser(file_obj.repo_name2tab, is_debug=False)
                             try:
                                 with Timeout(10):
-                                    query_obj = parser.parse(s)
+                                    query_obj = parser.parse(s, filter_join_query=False)
                                 # query_obj, unfound_list = parser.parse(s)
                                 if query_obj:
                                     repo_query_list.append(query_obj)

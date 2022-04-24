@@ -288,7 +288,7 @@ def aggregate(fpath="data/s2_sql_file_list.txt", max_repo_limit=9999999):
     """
     repo_dict = pickle.load(open("data/samples/repo_dict.pkl", "rb"))
     for repo_url, file_set in repo_dict.items():
-        if repo_url == "https://github.com/OdyseeTeam/commentron":
+        if repo_url == "https://github.com/monish-mnjds/Open-Law-Guide-using-Python-DB-api":
             repo_obj = Repository(repo_url, file_set)
             repo_list.append(repo_obj)
             break
@@ -308,7 +308,7 @@ def aggregate(fpath="data/s2_sql_file_list.txt", max_repo_limit=9999999):
             repo_list.append(repo_obj)
         repo_obj = Repository(repo_url, list(file_set))
         repo_list.append(repo_obj)
-    shuffle(repo_list)
+    # shuffle(repo_list)
     print(f"Totally aggregate repo nums: {len(repo_list)}")
     """
 

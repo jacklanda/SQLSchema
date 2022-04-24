@@ -73,9 +73,11 @@ with open(os.path.join(INPUT_FOLDER, input_pkl_file), 'rb') as f:
             if(SKIP_NO_CONSTRAINT_TABLE and tab_obj.is_table_all_cols_no_constraint()):
                 total_skipped_no_constraint_tables += 1
                 continue
+            """
             if(tab_obj.calc_table_notnull_perc() > SKIP_NOTNULL_TABLE_HIGHER_THAN_THRESHOLD):
                 total_skipped_too_high_notnull_tables += 1
                 continue
+            """
             tab_list_after_filter.append(tab_obj)
             
         
@@ -118,6 +120,7 @@ with open(ouput_lm_csv_file, 'w') as csv_writer, open(ouput_lm_csv_file_stats, '
         for l in lines:
             csv_writer.write(l + '\n')
         
+    """
         total_notnull_cols += tab_obj.total_inferred_notnull_col_cnt()
         total_unique_cols += tab_obj.total_inferred_unique_col_cnt()
         total_na_cols += tab_obj.total_inferred_no_constraint_col_cnt()
@@ -129,3 +132,4 @@ with open(ouput_lm_csv_file, 'w') as csv_writer, open(ouput_lm_csv_file_stats, '
     print('total_notnull_cols: {}, total_unique_cols: {}, total_na_cols: {}'.format(total_notnull_cols, total_unique_cols, total_na_cols))
     
 
+    """

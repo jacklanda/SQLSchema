@@ -12,14 +12,14 @@ from sample import print_table_obj, print_query_obj, print_fk_obj
 if __name__ == "__main__":
     coltype_freq_dict = dict()
     coltype_freq_dict["None"] = 0
-    pickle_fpath = "data/s4_sql_files_parsed/s4_parsed_sql_repo_list_2022_04_12_08:17:37/s4_parsed_sql_repo_list_2022_04_12_08:17:37.pkl"
+    pickle_fpath = "data/s4_sql_files_parsed/s4_parsed_sql_repo_list_2022_04_19_10:27:56/s4_parsed_sql_repo_list_2022_04_19_10:27:56.pkl"
     with open(pickle_fpath, "rb") as fp:
         repo_list = load(fp)
     # total_file_obj_count = 0
     not_empty_count = 0
     total_table_count = 0
     not_empty_table_count = 0
-    join_query_count = 0
+    query_count = 0
     have_fk_table_count = 0
     have_pk_table_count = 0
     have_key_table_count = 0
@@ -33,6 +33,10 @@ if __name__ == "__main__":
     total_condition_count = 0
     total_column_nums = 0
     have_type_column_nums = 0
+    have_projection_query_nums = 0
+    have_aggregation_query_nums = 0
+    have_selection_query_nums = 0
+    have_groupby_query_nums = 0
     # repo_list = sample(repo_list, 100)
     for i, repo in enumerate(repo_list):
         # filter empty table object
@@ -50,16 +54,29 @@ if __name__ == "__main__":
         if not_empty_table_count > 1000:
             break
         """
-        join_query_count += len(repo.join_query_list)
+        query_count += len(repo.join_query_list)
         # for case in repo.check_failed_cases:
         # print(case)
         # """
         # """
         for query_obj in repo.join_query_list:
+            if query_obj.projection_dict:
+                have_projection_query_nums += 1
+                print(f"projection dict: {query_obj.projection_dict}")
+            if query_obj.aggregate_dict:
+                have_aggregation_query_nums += 1
+                print(f"aggregate dict: {query_obj.aggregate_dict}")
+            if query_obj.selection_dict:
+                have_selection_query_nums += 1
+                print(f"selection dict: {query_obj.selection_dict}")
+            if query_obj.groupby_dict:
+                have_groupby_query_nums += 1
+                print(f"groupby dict: {query_obj.groupby_dict}")
             # print_query_obj(query_obj)
             total_binary_join_count += len(query_obj)
-            for binary_join in query_obj.binary_joins:
-                total_condition_count += len(query_obj.binary_joins)
+            if query_obj.binary_joins:
+                for binary_join in query_obj.binary_joins:
+                    total_condition_count += len(query_obj.binary_joins)
         # """
         for table_name, table_object in repo.name2tab.items():
             total_table_count += 1
@@ -80,8 +97,8 @@ if __name__ == "__main__":
                 not_empty_table_count += 1
             # """
     # print(f"{}")
-    # print("avg binary join in each query:", total_binary_join_count / join_query_count)
-    # print("avg condition in each query:", total_condition_count / join_query_count)
+    # print("avg binary join in each query:", total_binary_join_count / query_count)
+    # print("avg condition in each query:", total_condition_count / query_count)
     # """
             if table_object.fk_list:
                 print()
@@ -123,7 +140,11 @@ if __name__ == "__main__":
     # print(f"Totally file object nums: {total_file_obj_count}")
     print(f"Totally table count: {total_table_count}")
     print(f"Totally not empty table: {not_empty_table_count}")
-    print(f"Totally join query count: {join_query_count}")
+    print(f"Totally query count: {query_count}")
+    print(f"Totally have projection query nums: {have_projection_query_nums}")
+    print(f"Totally have aggregation query nums: {have_aggregation_query_nums}")
+    print(f"Totally have selection query nums: {have_selection_query_nums}")
+    print(f"Totally have groupby query nums: {have_groupby_query_nums}")
     # print(f"Totally have pk table nums: {have_pk_table_count}")
     # print(f"Totally have fk table nums: {have_fk_table_count}")
     # print(f"Totally have key table nums: {have_key_table_count}")

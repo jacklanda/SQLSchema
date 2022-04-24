@@ -160,7 +160,16 @@ class Query:
         self.__groupby_dict = groupby_dict
 
     def __len__(self):
-        return len(self.__binary_join_list)
+        if self.__binary_join_list:
+            return len(self.__binary_join_list)
+        elif self.__projection_dict:
+            return len(self.__projection_dict)
+        elif self.__aggregate_dict:
+            return len(self.__aggregate_dict)
+        elif self.__selection_dict:
+            return len(self.__selection_dict)
+        elif self.__groupby_dict:
+            return len(self.__groupby_dict)
 
     @property
     def binary_joins(self):
@@ -168,32 +177,32 @@ class Query:
 
     @binary_joins.setter
     def binary_joins(self, l):
-        if not isinstance(l, list):
-            raise TypeError("Could only assign attrib `binary_joins` with a list object!")
+        # if not isinstance(l, list):
+            # raise TypeError("Could only assign attrib `binary_joins` with a list object!")
         self.__binary_join_list = l
 
     @property
     def aggregate_dict(self):
-        if self.__aggregate_dict is None:
-            self.__aggregate_dict = dict()
+        # if self.__aggregate_dict is None:
+            # self.__aggregate_dict = dict()
         return self.__aggregate_dict
 
     @property
     def groupby_dict(self):
-        if self.__groupby_dict is None:
-            self.__groupby_dict = dict()
+        # if self.__groupby_dict is None:
+            # self.__groupby_dict = dict()
         return self.__groupby_dict
 
     @property
     def projection_dict(self):
-        if self.__projection_dict is None:
-            self.__projection_dict = dict()
+        # if self.__projection_dict is None:
+            # self.__projection_dict = dict()
         return self.__projection_dict
 
     @property
     def selection_dict(self):
-        if self.__selection_dict is None:
-            self.__selection_dict = dict()
+        # if self.__selection_dict is None:
+            # self.__selection_dict = dict()
         return self.__selection_dict
 
 
@@ -322,8 +331,9 @@ class TokenVisitor:
 
         def __is_join_query_stmt(t):
             # return True if t.value.lower() == "select" and str(t.ttype) == "Token.Keyword.DML" \
-            return True if t.parent is not None and "select" in t.parent.value.lower() \
-                and ("join" in t.parent.value.lower() or "where" in t.parent.value.lower()) else False
+            # return True if t.parent is not None and "select" in t.parent.value.lower() \
+                # and ("join" in t.parent.value.lower() or "where" in t.parent.value.lower()) else False
+            return True if t.parent is not None and "select" in t.parent.value.lower() else False
 
         # append SELECT clause followed by `INTERSECT`
         token_select = list()
@@ -1591,26 +1601,25 @@ class QueryParser:
         for query_node in query_nodes:
             try:
                 subquery_list = __get_subquery_list(query_node)
-                # print(query_node.sub_query_list)
             except:
                 pass
             else:
                 query_node.sub_query_list = subquery_list
-                # print(query_node.sub_query_list)
 
         # get join type
         for query_node in query_nodes:
-            query_node.join_type = __get_join_type(query_node)
+            query_node.join_type = __get_join_type(query_node) if self.filter_join_query else None
 
         # get tables for each query node
         for query_node in query_nodes:
             try:
                 node_parser = Parser(query_node.statement)
-                tables = node_parser.tables
+                tables = node_parser.tables if node_parser.tables else query_node.tables
             except:
                 pass
             else:
-                query_node.tables += tables
+                if tables:
+                    query_node.tables += tables
 
         return query_nodes
 
@@ -1639,10 +1648,26 @@ class QueryParser:
                     except Exception as e:
                         # print("Query parse error:", e)
                         logging.exception(e)
-            self._extract_projection(self.node)
-            self._extract_selection(self.node)
-            self._extract_groupby(self.node)
-            self._extract_aggregate(self.node)
+            try:
+                self._extract_projection(self.node)
+            except Exception as e:
+                print("proj parse error")
+                logging.exception(e)
+            try:
+                self._extract_selection(self.node)
+            except Exception as e:
+                print("selection parse error")
+                logging.exception(e)
+            try:
+                self._extract_groupby(self.node)
+            except Exception as e:
+                print("groupby parse error")
+                logging.exception(e)
+            try:
+                self._extract_aggregate(self.node)
+            except Exception as e:
+                print("agg parse error")
+                logging.exception(e)
         # handle multiple-select query
         elif len(nodes) > 1:
             # print(nodes[0].children[0].statement)
@@ -1655,10 +1680,26 @@ class QueryParser:
                 except Exception as e:
                     # print("Query parse error:", e)
                     logging.exception(e)
-                self._extract_projection(self.node)
-                self._extract_selection(self.node)
-                self._extract_groupby(self.node)
-                self._extract_aggregate(self.node)
+                try:
+                    self._extract_projection(self.node)
+                except Exception as e:
+                    print("proj parse error")
+                    logging.exception(e)
+                try:
+                    self._extract_selection(self.node)
+                except Exception as e:
+                    print("selection parse error")
+                    logging.exception(e)
+                try:
+                    self._extract_groupby(self.node)
+                except Exception as e:
+                    print("groupby parse error")
+                    logging.exception(e)
+                try:
+                    self._extract_aggregate(self.node)
+                except Exception as e:
+                    print("agg parse error")
+                    logging.exception(e)
 
     def _preprocess(self, s):
         return s.replace("(nolock)", "").replace("(NOLOCK)", "").replace("(+)", "").replace("(-)", "")
@@ -1680,7 +1721,7 @@ class QueryParser:
             for tname in from_tables:
                 tname = tname.lower() if '.' not in tname else tname.rsplit('.', 1)[1].lower()
                 if tname in lower2name2tab:
-                    tab_obj = lower2name2tab[tname]
+                    tab_obj = lower2name2tab[tname][1]
                     if tab_obj not in self.projection_dict:
                         self.projection_dict[tab_obj] = list()
                     for _, col_obj in tab_obj.name2col.items():
@@ -1704,7 +1745,7 @@ class QueryParser:
                     # for non-table-prefix column
                     c = proj.lower()
                     for _, tpair in lower2name2tab.items():
-                        tab_name, tab_obj = tpair
+                        _, tab_obj = tpair
                         lower2name2col = {k.lower(): (k, v) for k, v in tab_obj.name2col.items()}
                         if c in lower2name2col:
                             col_obj = lower2name2col[c][1]
@@ -1721,27 +1762,108 @@ class QueryParser:
         """
 
     def _check_selection(self, selection_list, from_tables):
-        pass
+
+        def __check_entity(c):
+            if '.' in c:
+                c = c.rsplit('.', 1)[1]
+            for _, tpair in lower2name2tab.items():
+                _, tab_obj = tpair
+                lower2name2col = {k.lower(): (k, v) for k, v in tab_obj.name2col.items()}
+                if c in lower2name2col:
+                    col_obj = lower2name2col[c][1]
+                    if tab_obj not in self.selection_dict:
+                        self.selection_dict[tab_obj] = list()
+                    self.selection_dict[tab_obj].append(col_obj)
+
+        lower2name2tab = {k.lower(): (k, v) for k, v in self.name2tab.items()} | {k.lower().rsplit('.', 1)[-1]: (k, v) for k, v in self.name2tab.items() if '.' in k}
+
+        for condition in selection_list:
+            if "<=" in condition:
+                left, right = condition.split("<=", 1)
+                __check_entity(left)
+                __check_entity(right)
+            elif ">=" in condition:
+                left, right = condition.split(">=", 1)
+                __check_entity(left)
+                __check_entity(right)
+            elif "!=" in condition:
+                continue
+            elif "<>" in condition:
+                continue
+            elif "=" in condition:
+                if "==" in condition:
+                    condition = condition.replace("==", "=")
+                left, right = condition.split("=", 1)
+                __check_entity(left)
+                __check_entity(right)
+            elif "<" in condition:
+                left, right = condition.split("<", 1)
+                __check_entity(left)
+                __check_entity(right)
+            elif ">" in condition:
+                left, right = condition.split(">", 1)
+                __check_entity(left)
+                __check_entity(right)
+
+
 
     def _check_aggregate(self, aggregation_list, from_tables):
-        pass
+        lower2name2tab = {k.lower(): (k, v) for k, v in self.name2tab.items()} | {k.lower().rsplit('.', 1)[-1]: (k, v) for k, v in self.name2tab.items() if '.' in k}
+        for agg_func, agg_col in aggregation_list:
+            if '.' in agg_col:
+                # for table-prefix column
+                t, c = agg_col.lower().rsplit('.', 1)
+                if t in lower2name2tab:
+                    tab_obj = lower2name2tab[t][1]
+                    lower2name2col = {k.lower(): (k, v) for k, v in tab_obj.name2col.items()}
+                    if c in lower2name2col:
+                        col_obj = lower2name2col[c][1]
+                        if tab_obj not in self.aggregate_dict:
+                            self.aggregate_dict[tab_obj] = list()
+                        self.aggregate_dict[tab_obj].append((agg_func, col_obj))
+            else:
+                # for non-table-prefix column
+                c = agg_col.lower()
+                for _, tpair in lower2name2tab.items():
+                    _, tab_obj = tpair
+                    lower2name2col = {k.lower(): (k, v) for k, v in tab_obj.name2col.items()}
+                    if c in lower2name2col:
+                        col_obj = lower2name2col[c][1]
+                        if tab_obj not in self.aggregate_dict:
+                            self.aggregate_dict[tab_obj] = list()
+                        self.aggregate_dict[tab_obj].append((agg_func, col_obj))
 
     def _check_groupby(self, groupby_list, from_tables):
-        tables = self.node.tables
         lower2name2tab = {k.lower(): (k, v) for k, v in self.name2tab.items()} | {k.lower().rsplit('.', 1)[-1]: (k, v) for k, v in self.name2tab.items() if '.' in k}
-        for tname in lower2name2tab:
-            if tname in tables:
-                tab_obj = lower2name2tab[tname][1]
-                lower2name2col = {k.lower(): (k, v) for k, v in tab_obj.name2col.items()}
-                for column_name in groupby_list:
-                    if column_name in lower2name2col:
-                        tab_obj.col_freq_groupby[column_name] += 1
+        for col in groupby_list:
+            if '.' in col:
+                # for table-prefix column
+                t, c = col.lower().rsplit('.', 1)
+                if t in lower2name2tab:
+                    tab_obj = lower2name2tab[t][1]
+                    lower2name2col = {k.lower(): (k, v) for k, v in tab_obj.name2col.items()}
+                    if c in lower2name2col:
+                        col_obj = lower2name2col[c][1]
+                        if tab_obj not in self.groupby_dict:
+                            self.groupby_dict[tab_obj] = list()
+                        self.groupby_dict[tab_obj].append(col_obj)
+            else:
+                # for non-table-prefix column
+                c = col.lower()
+                for _, tpair in lower2name2tab.items():
+                    _, tab_obj = tpair
+                    lower2name2col = {k.lower(): (k, v) for k, v in tab_obj.name2col.items()}
+                    if c in lower2name2col:
+                        col_obj = lower2name2col[c][1]
+                        if tab_obj not in self.groupby_dict:
+                            self.groupby_dict[tab_obj] = list()
+                        self.groupby_dict[tab_obj].append(col_obj)
 
     def _extract_projection(self, query_node):
 
         def __between_select_and_from(i):
             return True if (i - 2 >= 0 and i + 2 < len(tokens)
-                            and tokens[i - 2].value == "select" and tokens[i + 2].value == "from") else False
+                            and tokens[i - 2].value.lower() == "select" and tokens[i + 2].value.lower() == "from") else False
 
         def __extract_from_identifiers(token):
             if isinstance(token, Identifier):
@@ -1749,7 +1871,8 @@ class QueryParser:
             elif isinstance(token, IdentifierList):
                 for tk in token.tokens:
                     if isinstance(tk, Function):
-                        projection_list.append(tk.get_parameters().value.strip())
+                        col = tk.value.split('(', 1)[1].split(')', 1)[0].strip()
+                        projection_list.append(col)
                     elif isinstance(tk, Identifier):
                         projection_list.append(tk.value.strip())
 
@@ -1786,7 +1909,6 @@ class QueryParser:
             else:
                 return (query_node.alias2table[alias] + '.' + column).strip() if alias in query_node.alias2table else column
 
-
         is_wildcard = False
         from_tables = list()
         projection_list = list()
@@ -1798,15 +1920,19 @@ class QueryParser:
 
         for i in range(len(tokens)):
             if isinstance(tokens[i], Function):
-                projection_list.append(tokens[i].get_parameters().value)
+                col = fmt_str(tokens[i].value.split('(', 1)[1].split(')', 1)[0].strip())
+                if ' ' in col:
+                    col = col.rsplit(' ', 1)[0].strip()
+                projection_list.append(col)
             elif isinstance(tokens[i], Identifier) and __between_select_and_from(i):
                 __extract_from_identifiers(tokens[i])
             elif isinstance(tokens[i], IdentifierList) and __between_select_and_from(i):
                 __extract_from_identifiers(tokens[i])
             elif "ttype" in dir(tokens[i]) and str(tokens[i].ttype) == "Token.Wildcard" and __between_select_and_from(i):
                 is_wildcard = True
-            elif (str(tokens[i].ttype) == "Token.Keyword" and tokens[i].value == "from"
-                    and i + 2 < len(tokens) and "select " not in tokens[i + 2].value):
+                projection_list.append('*')
+            elif (str(tokens[i].ttype) == "Token.Keyword" and tokens[i].value.lower() == "from"
+                    and i + 2 < len(tokens) and "select " not in tokens[i + 2].value.lower()):
                 if ',' in tokens[i + 2].value:
                     tmp = list()
                     for t in [t.strip() for t in tokens[i + 2].value.split(',')]:
@@ -1818,14 +1944,16 @@ class QueryParser:
                             tmp.append(t)
                     from_tables += tmp
                 else:
-                    if ' as ' in tokens[i + 2].value:
-                        from_tables.append(tokens[i + 2].value.split(' as ', 1)[0])
+                    if ' as ' in tokens[i + 2].value.lower():
+                        from_tables.append(tokens[i + 2].value.lower().split(' as ', 1)[0])
                     elif ' ' in tokens[i + 2].value:
-                        from_tables.append(tokens[i + 2].value.split(' ', 1)[0])
+                        from_tables.append(tokens[i + 2].value.lower().split(' ', 1)[0])
                     else:
-                        from_tables.append(tokens[i + 2].value.strip())
+                        from_tables.append(tokens[i + 2].value.lower().strip())
 
-        from_tables = list(set(query_node.tables + from_tables))
+        if query_node.tables:
+            from_tables = list(set(query_node.tables + from_tables))
+        from_tables = [fmt_str(t) for t in from_tables]
 
         temp_list = list()
         for c in projection_list:
@@ -1833,8 +1961,10 @@ class QueryParser:
         projection_list = temp_list
 
         if projection_list and from_tables:
+            self.raw_projection_list = projection_list
             self._check_projection(projection_list, from_tables)
         elif is_wildcard and from_tables:
+            self.raw_projection_list = projection_list
             self._check_projection(projection_list, from_tables, is_wildcard=True)
 
     def _extract_selection(self, query_node):
@@ -1881,6 +2011,40 @@ class QueryParser:
                 elif isinstance(token, Function):
                     __extract_internal_cmp_tokens(token)
 
+        def __has_matched_subquery(alias):
+            alias_list = list()
+            for d in query_node.sub_query_list:
+                if d is not None:
+                    alias_list += d.keys()
+                    alias_list += [s.lower() for s in d.keys()]
+            return True if alias in alias_list else False
+
+        def __norm_column(c):
+            if " as " in c:
+                c = c.split(" as ", 1)[0].strip()
+            if any([fn + '(' in c and ')' in c for fn in AGG_FUNC_LIST]):
+                c = c.split('(', 1)[1].split(')', 1)[0].strip()
+            if '.' not in c:
+                if len(from_tables) == 1:
+                    return from_tables[0] + '.' + c
+                return c
+            alias, column = c.rsplit('.', 1)
+            if __has_matched_subquery(alias):
+                table, column = self._find_table_in_children(alias, column)
+                return table.strip() + '.' + column.strip()
+            # find table's alias in parent scope
+            elif query_node.parent:
+                table = ""
+                parent = query_node.parent
+                while parent is not None:
+                    table, found = self._find_table_in_parent(alias, parent)
+                    if found:
+                        break
+                    parent = parent.parent
+                if table:
+                    return table.strip() + '.' + column.strip()
+            return (query_node.alias2table[alias] + '.' + column).strip() if alias in query_node.alias2table else column
+
         selection_list = list()
         from_tables = query_node.tables
         try:
@@ -1905,13 +2069,14 @@ class QueryParser:
             # print(f"selection list: {selection_list}")
             # print(f"from tables: {from_tables}")
             # print()
+            self.raw_selection_list = selection_list
             self._check_selection(selection_list, from_tables)
 
     def _extract_aggregate(self, query_node):
 
         def __between_select_and_from(i):
             return True if (i - 2 >= 0 and i + 2 < len(tokens)
-                            and tokens[i - 2].value == "select" and tokens[i + 2].value == "from") else False
+                            and tokens[i - 2].value.lower() == "select" and tokens[i + 2].value.lower() == "from") else False
 
         def __extract_from_identifiers(tk):
             idf_lst = tk.tokens
@@ -1919,9 +2084,10 @@ class QueryParser:
                 if isinstance(t, Identifier) and any(t.value.startswith(agg_func) for agg_func in AGG_FUNC_LIST):
                     __extract_from_identifiers(t)
                 elif (isinstance(t, Function)
-                        and any(t.value.startswith(agg_func) for agg_func in AGG_FUNC_LIST) and isinstance(t.get_parameters()[0], Identifier)):
+                        and any(t.value.startswith(agg_func) for agg_func in AGG_FUNC_LIST)):
+                    c = t.value.split('(', 1)[1].split(')', 1)[0].strip()
                     agg_func = t.get_name()
-                    agg_col = __norm_column(t.get_parameters()[0].value)
+                    agg_col = __norm_column(c)
                     aggregate_list.append((agg_func, agg_col))
 
         def __has_matched_subquery(alias):
@@ -1953,7 +2119,7 @@ class QueryParser:
             else:
                 return (query_node.alias2table[alias] + '.' + column).strip() if alias in query_node.alias2table else column
 
-        from_tables = query_node.tables
+        from_tables = query_node.tables if query_node.tables else list()
         aggregate_list = list()
         try:
             tokens = query_node.token.tokens
@@ -1966,10 +2132,11 @@ class QueryParser:
                 __extract_from_identifiers(token)
             elif isinstance(token, Identifier) and __between_select_and_from(i) and any(token.value.startswith(agg_func) for agg_func in AGG_FUNC_LIST):
                 __extract_from_identifiers(token)
-            elif isinstance(token, Function) and __between_select_and_from(i) and isinstance(token.get_parameters()[0], Identifier):
+            elif isinstance(token, Function) and __between_select_and_from(i):
                 if token.get_name() in AGG_FUNC_LIST:
+                    c = token.value.split('(', 1)[1].split(')', 1)[0].strip()
                     agg_func = token.get_name()
-                    agg_col = __norm_column(token.get_parameters()[0].value)
+                    agg_col = __norm_column(c)
                     aggregate_list.append((agg_func, agg_col))
 
         if aggregate_list and from_tables:
@@ -1977,7 +2144,14 @@ class QueryParser:
             # print(f"aggregate list: {aggregate_list}")
             # print(f"from tables: {from_tables}")
             # print()
+            self.raw_aggregate_list = aggregate_list
             self._check_aggregate(aggregate_list, from_tables)
+        elif not aggregate_list:
+            # print("no aggregation")
+            pass
+        elif not from_tables:
+            # print("no from tables")
+            pass
 
     def _extract_groupby(self, query_node):
 
@@ -2011,7 +2185,6 @@ class QueryParser:
                 return (query_node.alias2table[alias] + '.' + column).strip() if alias in query_node.alias2table else column
 
         column_list = list()
-        groupby_list = list()
         columns_aliases = dict()
         from_tables = query_node.tables
         token = query_node.token
@@ -2039,16 +2212,18 @@ class QueryParser:
             print("grouby parse fail:", e)
 
         if column_list and from_tables:
-            print(query_node.statement)
-            print(f"groupby: {column_list}")
-            print(f"from tables: {from_tables}")
-            print()
+            # print(query_node.statement)
+            # print(f"groupby: {column_list}")
+            # print(f"from tables: {from_tables}")
+            # print()
+            self.raw_groupby_list = column_list
             self._check_groupby(column_list, from_tables)
 
-    def parse(self, s):
+    def parse(self, s, filter_join_query=False):
         s = self._preprocess(s)
         root, = parse(s)
         self.visitor = TokenVisitor(root)
+        self.filter_join_query = filter_join_query
         select_tokens = self.visitor.select_tokens
 
         # if self.is_union_query(root):
@@ -2067,6 +2242,39 @@ class QueryParser:
         # handle single-select query
         self.parse_query_nodes(query_nodes)
 
+        print(f"input query statement: {s}")
+        if self.binary_join_list:
+            print(f"binary join list: {self.binary_join_list}")
+
+        if self.raw_projection_list:
+            print(f"raw projection list: {self.raw_projection_list}")
+        else:
+            print("raw projection parse fail")
+        if self.projection_dict:
+            print(f"projection dict: {self.projection_dict}")
+
+        if self.raw_aggregate_list:
+            print(f"raw aggregate list: {self.raw_aggregate_list}")
+        else:
+            print("raw aggregation parse fail")
+        if self.aggregate_dict:
+            print(f"aggregate dict: {self.aggregate_dict}")
+
+        if self.raw_selection_list:
+            print(f"raw selection list: {self.raw_selection_list}")
+        else:
+            print("raw selection parse fail")
+        if self.selection_dict:
+            print(f"selection dict: {self.selection_dict}")
+
+        if self.raw_groupby_list:
+            print(f"raw groupby list: {self.raw_groupby_list}")
+        else:
+            print("raw groupby parse fail")
+        if self.groupby_dict:
+            print(f"groupby dict: {self.groupby_dict}")
+
+        """
         if not self.is_debug:
             # if not self.binary_join_list and self.condition_list:
             if not self.binary_join_list and self.raw_condition_list:
@@ -2089,6 +2297,7 @@ class QueryParser:
                 # print("input query statement")
                 # print("query parse succ and link succ")
                 # print(self.binary_join_list)
+        """
 
         query_object = self._construct_query_object()
 
@@ -2101,7 +2310,7 @@ class QueryParser:
 if __name__ == "__main__":
     query_list = list()
     stmts = [
-        """SELECT res.subject_id FROM (SELECT p.id, p.name, p.university_id, pee.subject_id, es.ege_pass_score FROM program as p LEFT JOIN program_ege_exam as pee ON p.id = pee.program_id LEFT JOIN entrance_statistic as es ON p.id = es.program_id WHERE es.ege_pass_score <= 150) as res GROUP BY res.subject_id"""
+        """SELECT last_name, COUNT(last_name) from actor GROUP BY last_name HAVING COUNT(last_name) > 1""",
         # """SELECT Product.name, Attribute.sizeValue, Attribute.colourValue FROM Product_Shop INNER JOIN Product ON Product_Shop.productID = Product.id LEFT JOIN Attribute ON Product_Shop.attributeID = Attribute.id WHERE Product_Shop.shopLocation = 'Games Shop Location' AND Product_Shop.quantity = 0""",
         # """select mrid from mrsfiles natural join files where (extension = '.c' or extension = '.h' or extension = '.java') and revisionid = '1.1'""",
         # """SELECT p.Nome, a.Targa FROM _Auto a, Proprietari p WHERE a.CodF=p.CodF AND (Cilindrata = 2000 OR Potenza > 120)"""

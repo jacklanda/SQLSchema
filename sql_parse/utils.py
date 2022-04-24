@@ -489,7 +489,7 @@ def convert_camel_to_underscore(s):
     return ''.join(res)
 
 
-def query_stmt_split(fpath):
+def query_stmt_split(fpath, filter_join_query=False):
 
     def from_multitables(s):
         clause = s.split("from")[1].split("where")[0]
@@ -516,20 +516,27 @@ def query_stmt_split(fpath):
         sub_stmts = stmt.split(';')
         try:
             with Timeout(3):
-                split_by_semicolon += [sqlparse.format(s.strip(), strip_comments=True)
-                                       for s in sub_stmts
-                                       if s != '\n'
-                                       and "select " in s.lower()
-                                       and "from " in s.lower()
-                                       and (("join " in s.lower())
-                                            or ("where " in s.lower() and from_multitables(s.lower())))]
+                if filter_join_query:
+                    split_by_semicolon += [sqlparse.format(s.strip(), strip_comments=True)
+                                        for s in sub_stmts
+                                        if s != '\n'
+                                        and "select " in s.lower()
+                                        and "from " in s.lower()
+                                        and (("join " in s.lower())
+                                                or ("where " in s.lower() and from_multitables(s.lower())))
+                                        and any(op in s for op in BINARY_OP)]
+                elif not filter_join_query:
+                    split_by_semicolon += [sqlparse.format(s.strip(), strip_comments=True)
+                                        for s in sub_stmts
+                                        if s != '\n' and "select " in s.lower() and "from " in s.lower()]
         except:
             continue
 
     stmts = [' '.join(s.split()) for s in split_by_semicolon]
 
     # return [convert_camel_to_underscore(s) for s in stmts if any(op in s for op in BINARY_OP)]
-    return [s for s in stmts if any(op in s for op in BINARY_OP)]
+    # return [s for s in stmts if any(op in s for op in BINARY_OP)] if filter_join_query else stmts
+    return stmts
 
 
 def calc_col_cov(table_lhs, table_rhs):
