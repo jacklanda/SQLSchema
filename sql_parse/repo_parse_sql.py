@@ -62,6 +62,7 @@ class Repository:
         # and at last traverse this unhandled referred table name according to the more complete repo object.
         # n.b. should treat the temporary unfound referred table as normal and mark it in memo!
         self.__repo_url = repo_url
+        self.__repo_name = repo_url.replace("https://", "").rsplit('/', 1)[-1]
         self.__repo_fplist = [f[0] for f in sql_file_set]
         self.__repo_furls = [f[1] for f in sql_file_set]
         self.__repo_memo = repo_memo
@@ -75,6 +76,11 @@ class Repository:
     def repo_url(self):
         "Get attribute `repo_url`(read-only)"
         return self.__repo_url
+
+    @ property
+    def repo_name(self):
+        "Get attribute `repo_name`(read-only)"
+        return self.__repo_name
 
     @ property
     def repo_fpath_list(self):
@@ -262,7 +268,7 @@ def aggregate(fpath="data/s2_sql_file_list.txt", max_repo_limit=9999999):
     -------
     - repo_list: list[Repository]
     """
-    repo_list = list()
+    # repo_list = list()
     """
     repo_dict = dict()
     with open(fpath, "r") as fp:
@@ -312,16 +318,8 @@ def aggregate(fpath="data/s2_sql_file_list.txt", max_repo_limit=9999999):
     print(f"Totally aggregate repo nums: {len(repo_list)}")
     """
 
-    # return sample(repo_list, 11000)
-    # """
-    # return repo_list
-    # pickle_fpath = f"data/samples/s4_parsed_sql_repo_list_{time.strftime('%Y_%m_%d_%H:%M:%S')}.pkl"
-    # pickle.dump(samples, open("data/samples/repo_list_11k.pkl", "wb"))
-    # pickle.dump(sample(repo_list, 100), open(pickle_fpath, "wb"))
-    return pickle.load(open("data/samples/repo_list_11k.pkl", "rb"))
-    # repo_list = pickle.load(open("data/samples/repo_list_11k.pkl", "rb"))
-    # samples = sample(repo_list, 1100)
-    # return samples
+    # return pickle.load(open("data/samples/repo_list_all.pkl", "rb"))  # for all the data
+    return pickle.load(open("data/samples/repo_list_11k.pkl", "rb"))  # for 1/100 in all the data
 
 
 if __name__ == "__main__":
