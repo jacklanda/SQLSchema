@@ -159,11 +159,11 @@ Enter (serial) debugging mode with `-d` / `--debug`: Debug mode parsing output i
 # Citation (BibTex)
 Please cite this repository by the following bibtex, if you feel this project is helpful to your research.
 ```latex
-@article{sql-schema-dataset,
-      title={SQL Schema Dataset},
-      author={Yang Liu},
-      url={https://github.com/jacklanda/SQLSchema},
-      howpublished={\url{https://github.com/jacklanda/SQLSchema}},
-      year={2022}
+@misc{sql-schema-dataset,
+    title={SQL Schema Dataset},
+    author={Yang Liu},
+    url={https://github.com/jacklanda/SQLSchema},
+    howpublished={\url{https://github.com/jacklanda/SQLSchema}},
+    year={2022}
 }
 ```
