@@ -1,157 +1,149 @@
-# summary from the meeting on code:
+# Summary from the Meeting on Code:
 
-## code structure (top-down)
-	- Run.sh is the outer-most shell script
-		○  Invokes repo_parse_sql.py 
-		○ (need to comment/uncomment pre-aggregated repo files,  in repo_parse_sql.py
-			1% of data: /datadrive/yang/exp/data/samples/repo_list_11k.pkl  (storing all repos with aggregated info of sql files in same repo, 11K=>1% sample, and 970K=>100%) 
-			Alternatively,  full list of repos:  /datadrive/yang/exp/data/samples/repo_list_all.pkl 
-      
-	- repo_parse_sql.py is the outer-most python file, serves as the master, that calls parallel workers implemented in this file
-		○ It calls s4_parse_sql.py
+## Code Structure (Top-Down)
+	- Run.sh is the outermost shell script
+		○ Invokes `repo_parse_sql.py` 
+		○ (Need to comment/uncomment pre-aggregated repo files in `repo_parse_sql.py`
+			1% of data: `/datadrive/yang/exp/data/samples/repo_list_11k.pkl` (storing all repos with aggregated info of SQL files in the same repo, 11K=>1% sample, and 970K=>100%)
+			Alternatively, the full list of repos: `Please stay tuned for further release!`
+
+	- `repo_parse_sql.py` is the outermost Python file, serves as the master, that calls parallel workers implemented in this file
+		○ It calls `s4_parse_sql.py`
     
-	- s4_parse_sql.py is the middle layer, that has "class File" level logic (from my old code), performs multi-stage parsing (first process create-table, then alter-table, then FK, then query, etc.). 
-		○ This calls out to parse_query.py, for per query parsing
+	- `s4_parse_sql.py` is the middle layer, which has "class File" level logic (from my old code), performs multi-stage parsing (first process create-table, then alter-table, then FK, then query, etc.). 
+		○ This calls out to `parse_query.py` for per query parsing
     
-	- parse_query.py is the lowest layer, for per query parsing (Join, aggregate, groupby, etc.)
+	- `parse_query.py` is the lowest layer, for per query parsing (Join, aggregate, groupby, etc.)
 
-
-## other notes:
-https://github.com/jacklanda/bert4sql/blob/8436ed8c8305cc1c3bd5125bfa387477fa919dbf/sql_parse/repo_parse_sql.py#L26
-Even though there is a "join_query_list", it stores all Query info (not just join, but also agg, selection, etc.)
-
-
-
+## Other Notes:
+[Link to Code](https://github.com/jacklanda/bert4sql/blob/8436ed8c8305cc1c3bd5125bfa387477fa919dbf/sql_parse/repo_parse_sql.py#L26)
+Even though there is a "join_query_list," it stores all Query info (not just join but also agg, selection, etc.)
 
 # Code Instruction from Yang: 
-https://alpine-seat-ecd.notion.site/Code-Instruction-015c2ed396394598a7953d5e3f765b5d
+[Code Instruction](https://alpine-seat-ecd.notion.site/Code-Instruction-015c2ed396394598a7953d5e3f765b5d)
 
-# 依赖第三方库
+# Third-Party Library Dependencies
 
-- pebble: 一个带有 Timeout 超时设置的线程并行库
-- sqlparse: sql query statement ⇒ ast
-- sql_metadata: 对 sqlparse 的进一步封装，便于使用 ast
-- beautifulsoup4: 使用其内部方法：UnicodeDammit 来检测 SQL script 的编码
+- pebble: A thread parallel library with timeout settings
+- sqlparse: SQL query statement ⇒ AST
+- sql_metadata: Further encapsulation of sqlparse, facilitating the use of AST
+- beautifulsoup4: Uses its internal method UnicodeDammit to detect the encoding of SQL script
 
-# 项目结构
+# Project Structure
 
-- data/
-    - s3_sql_files_crawled_all_vms/ ⇒ 存放了所有解压后的 sql scripts 文本
-    - s4_sql_files_parsed/ ⇒ 存放 parse 输出的 .pkl file
-    - samples/ ⇒ 存放用于 sample 分析时的 .pkl file
-    - variants_cases/ ⇒ 存放多种经由 grep 后匹配到的结果
-- log/
-- sql_parse/
-    - cls_def.py
-        - 定义了包括：Key, ForeignKey, Index, Column, Table, Pipeline 在内的多个基础类与各自的类方法。
-    - display.py
-        - 读入一个 .pkl 文件，统计并打印 pkl 中的主要内容
-    - dump_tables.py
-        - 读入一个 .pkl 文件，将内容输出为 Language Modeling 所需的 sequence 形式
-    - [exceptions.py](http://exceptions.py) (unused)
-        - 自定义异常类
-    - parse_query.py
-        - join 与 non-join query 的解析类，模块下定义了 TableInstance, BinaryJoin, Query, QueryNode, QueryTree, TokenVisitor, QueryParser 类与各自的类方法。
-        - 每个输入 query statement 将在主调方构造一个 QueryParser 对象，并调用该对象下的 parse 方法解析传入的 query statement
-        - 对每个 query statement 构造出一棵 Query Tree，tree 中的每个 node 对应 query statement 中的每个 query scope，query node 内记录了指向其父节点(如果有)，子节点(如果有)的成员变量，对应 sub query 的 statement 以及 sub query ast。
-        - 对 query tree 按：join condition ⇒ projection ⇒ aggregation ⇒ selection ⇒ groupby 进行解析并保存结果到 QueryParser 下相应的成员变量下。
-        - 对于 join condition, projection, aggregation, selection 和 groupby 而言，五者中只需任意一个 parse 并 check 成功则认为该 query statement 解析成功，为之将构造出一个 query object 并保存之。
-    - query_sample.py
-        - 该模块下定义了用以分析计算 query parse 过程中 table fail, column fail, fk 与 join condition 重合以及同名 table 的重合比例等实用函数。
-    - repo_parse_sql.py
-        - 该模块定义了 Repository 类与对 repo 做聚合处理的相关函数，一般来说，该模块作为 shell 脚本调用 Python 的入口模块，在并行处理条件下，该模块作为 master thread 负责对 fork 出的每个 worker thread 进行调度。
-    - s4_parse_sql.py
-        - 在并行处理条件下，模块下定义的 作为每个 worker 的调用函数 parse_repo_files。
-    - s4c_post_process_tables_for_training.py
-        - 输入一个 pickle 文件，对数据做后处理
-    - sample.py
-        - 该模块下定义了一系列用于打印 table object, column object, etc. 对象内容的实用函数
-    - utils.py
-        - 定义了一份在抽取中用于管理正则表达式的自定义类 RegexDict，用于列类别映射转换的自定义类，此外还实现了一些 parse 过程的常用函数。
-- tools/
-    - grep_join_like_stmts.py: 计算所有 SQL scripts 中 join query 语句的数量
+- `data/`
+    - `s3_sql_files_crawled_all_vms/` ⇒ Stores all decompressed SQL scripts text
+    - `s4_sql_files_parsed/` ⇒ Stores parse output .pkl files
+    - `samples/` ⇒ Stores .pkl files for sample analysis
+    - `variants_cases/` ⇒ Stores results matched through grep from multiple sources
+- `log/`
+- `sql_parse/`
+    - `cls_def.py`
+        - Defines multiple basic classes including Key, ForeignKey, Index, Column, Table, Pipeline, and their respective class methods.
+    - `display.py`
+        - Reads a .pkl file, counts and prints the main contents of the pkl
+    - `dump_tables.py`
+        - Reads a .pkl file, outputs the content in the sequence form required for Language Modeling
+    - exceptions.py (unused)
+        - Custom exception classes
+    - `parse_query.py`
+        - Parsing classes for join and non-join queries, module defines TableInstance, BinaryJoin, Query, QueryNode, QueryTree, TokenVisitor, QueryParser classes, and their respective class methods.
+        - Each input query statement will construct a QueryParser object in the calling function and call its parse method to parse the input query statement.
+        - Constructs a Query Tree for each query statement, where each node in the tree corresponds to each query scope in the query statement. Query nodes record member variables pointing to their parent node (if any), child nodes (if any), corresponding sub-query statement, and sub-query AST.
+        - Parses the query tree in the order of join condition -> projection -> aggregation -> selection -> groupby and saves the results to the corresponding member variables under QueryParser.
+        - For join condition, projection, aggregation, selection, and groupby, any one of them needs to parse and check successfully to consider the query statement parsed successfully, and a query object will be constructed and saved for that.
+    - `query_sample.py`
+        - This module defines practical functions for analyzing and calculating the overlap ratio of table fails, column fails, FK, and join condition overlaps, among others.
+    - `repo_parse_sql.py`
+        - This module defines the Repository class and related functions for aggregating repo processing. Generally, this module serves as the entry module called by the shell script. In parallel processing conditions, this module serves as the master thread responsible for scheduling each worker thread forked.
+    - `s4_parse_sql.py`
+        - In parallel processing conditions, the module defines the function parse_repo_files as the calling function for each worker.
+    - `s4c_post_process_tables_for_training.py`
+        - Input a pickle file, perform post-processing on the data
+    - `sample.py`
+        - This module defines a series of practical functions for printing table objects, column objects, etc.
+    - `utils.py`
+        - Defines a custom class RegexDict for managing regular expressions used in extraction, a custom class for mapping column categories used in conversion, and also implements some common functions used in the parsing process.
+- `tools/`
+    - `grep_join_like_stmts.py`: Calculates the number of join query statements in all SQL scripts
 
-# parse 功能介绍
+# Parse Function Introduction
 
-```
-通过向 run.sh 脚本传递不同的参数执行解析过程
+Execute parsing process by passing different parameters to the run.sh script.
 
-OPTIONS
-  -h, --help    show list of command-line options
-  -t, --test    unit test for shell script functions
-  -p, --parse   fork a SQL parse process
-  -d, --debug   debug SQL parse scripts with pudb
+OPTIONS:<br>
+-h, --help show a list of command-line options<br>
+-t, --test unit test for shell script functions<br>
+-p, --parse fork a SQL parse process<br>
+-d, --debug debug SQL parse scripts with pudb<br>
 
-SQL parse 分为两种模式，并行处理与串行调试模式。
+SQL parse has two modes: parallel processing and serial debugging mode.
 
-通过 -p / --parse 选项 进入(并行)处理模式：
-    开始解析后，将在 /datadrive/yang/exp/data/s4_sql_files_parsed
-    下产生一个新的目录(以任务启动时的时间格式 yyyy_mm_dd_hr:mi:se 为结尾)，
-    为避免解析过程中潜在的内存溢出问题，将会在该目录下分批保存解析完成的 .pkl 文件，
-    注意：分批保存的文件以 _d 数字编号为文件名后缀；
-    当解析全部完成后，程序会将所有 .pkl 文件合并存储到该目录下统一的 .pkl 文件中。
+Enter (parallel) processing mode with the `-p` / `--parse` option:
+After starting parsing, a new directory will be created under `Please stay tuned for further release!`
+(ending with the time format `yyyy_mm_dd_hr:mi:se` when the task is started).
+To avoid potential memory overflow issues during parsing, the completed .pkl files will be saved in batches in this directory.
+Note: Batch saved files have _d numeric suffixes as filenames;
+When all parsing is completed, the program will merge and store all .pkl files into a unified .pkl file in this directory.
 
-    P.S. 1) 该合并后的文件无 _d 数字编号文件名后缀；
-         2) 如需解析全量数据，需提前取消 repo_parse_sql.py:321 处注释；
-         3) 如需解析 1/100 全量的随机采样数据，需提前注释掉 repo_parse_sql.py:321，
-            并且取消 repo_parse_sql.py:322 处注释。
+P.S. 1) The merged file has no _d numeric suffix in the filename;
+     2) If you need to parse the full dataset, uncomment line 321 in repo_parse_sql.py in advance;
+     3) If you need to parse 1/100 of the full random sample data, uncomment line 321 in `repo_parse_sql.py` in advance,
+        and uncomment line 322 in `repo_parse_sql.py`.
 
-通过 -d / --debug 进入(串行)调试模式：
-    调试模式解析输出的说明同上
-```
+Enter (serial) debugging mode with `-d` / `--debug`: Debug mode parsing output is explained as above.
 
-# 数据分析
 
-### 数据集统计分析
+# Data Analysis
 
-- 对输出的 pkl file 整体进行分析：
-    
+### Dataset Statistical Analysis
+
+- Analyze the overall pkl file output:
+
+    ```markdown
+    Use the display.py script to perform statistical analysis on the pkl files output by the entire parse process. The measurable data includes:
+    - Total number of non-empty repositories,
+    - Total number of parsed tables,
+    - Total number of non-empty tables,
+    - Total number of columns in all tables,
+    - Total number of primary keys in all tables,
+    - Total number of foreign keys in all tables,
+    - Number of unique constraints,
+    - Number of candidate keys,
+    - Number of columns with data types,
+    - Total number of queries,
+    - Total number of binary joins,
+    - Total number of join conditions,
+    - Total number of indices,
+    - Number of queries with projection,
+    - Number of queries with aggregation,
+    - Number of queries with selection,
+    - Number of queries with groupby,
     ```
-    通过 display.py 脚本完成对整个 parse 流程所输出的 pkl 文件的统计分析，可统计的数据有：
-    - 非空 repo 总数，
-    - 解析出的 table 总数，
-    - 非空 table 总数，
-    - 所有 table 的 column 总数，
-    - 所有表的主键的总数，
-    - 所有表的外键的总数，
-    - unique 约束的数目，
-    - candidate key 的数目，
-    - 拥有 data type 的 column 的数目，
-    - query 总数，
-    - binary join 总数，
-    - join condition 总数，
-    - index 总数，
-    - 包含 projection 的 query 的数目，
-    - 包含 aggregation 的 query 的数目，
-    - 包含 selection 的 query 的数目，
-    - 包含 groupby 的 query 的数目，
-    ```
-    
-- 重名表分析方法：
-    - 在 s4_parse_sql.py 中使用 print_name2tab 函数在跑一份 repo 数据的同时完成对重名表格的输出(并行 or 串行均可完成这一过程)。
-- ForeignKey 与 BinaryJoin Condition 重合分析方法：
-    - 在 query_sample.py 中借助 calc_fk_jq_overlap 函数，输入一份处理后的 repo_list (由 pkl file 读入)，函数执行后的打印结果即为二者重叠与否的分析结果。
-- 同一 user 下在 repository 中寻找缺失 table 的比例：
-    - 在 query_sample.py 中使用 calc_missing_table_in_other_repo 函数，输入一份处理后的 repo_list (由 pkl file 读入)，打印出 join query 中缺失的 table 在同用户下其它 repo 中的出现比例。
-- 统计 table check fail 与 column check fail 数量：
-    - 在 query_sample.py 中使用 calc_failed_cases_num 函数，输入一份处理后的 repo_list (由 pkl file 读入)，将分别打印出所有 check failed case, table check failed case 以及 column check failed case 的数量。
-- 输出 pkl file 内容为序列化的 schema sequence:
-    - 运行 dump_tables.py 脚本，将 pkl 文件包含的数据输出为 natural language sentence 形式的 table schema sequence。
-- 检查 pkl 文件中保存的实体信息：
-    - 打印 pkl 文件中各层级对象所存内容，可借助 [sample.py](http://sample.py) 模块中 print_query_obj , print_table_obj , etc. 函数将对应层级的对象传入并打印出所保存的实体信息。
 
-# 调试方法
+- Methods for analyzing tables with the same name:
+    - Use the `print_name2tab` function in `s4_parse_sql.py` to output tables with the same name while running a repository data (can be done in parallel or serial).
+- Analysis method for overlapping ForeignKey and BinaryJoin Condition:
+    - In `query_sample.py`, use the `calc_fk_jq_overlap` function with a processed `repo_list` (read from pkl file), and the printed result after function execution is the analysis result of whether they overlap.
+- Proportion of missing tables in the same user's repository:
+    - Use the `calc_missing_table_in_other_repo` function in `query_sample.py` with a processed `repo_list` (read from pkl file) to print the proportion of missing tables in join queries in other repositories under the same user.
+- Count the number of table check fail and column check fail:
+    - Use the `calc_failed_cases_num` function in `query_sample.py` with a processed `repo_list` (read from pkl file) to print the quantities of all check failed cases, table check failed cases, and column check failed cases.
+- Output pkl file content as serialized schema sequence:
+    - Run the `dump_tables.py` script to output the data in the pkl file as natural language sentence-formatted table schema sequences.
+- Check the entity information saved in the pkl file:
+    - Print the content saved in the pkl file for each level of objects. Use functions like `print_query_obj`, `print_table_obj`, etc. from the `sample.py` module to pass the corresponding level of objects and print the saved entity information.
 
-> 本项目的调试借助 Python 3rd party → PuDB 完成
-> 
-- 输入特定的 user 进行调试：
-    - 在 `repo_parse_sql.py:288` 处取消注释，对属于同一 user 下的 repo 做聚合后
-    
-           在 `/datadrive/yang/exp` 目录下启动调试
-    
-- 输入特定的 repository 进行调试：
-    - 在 `repo_parse_sql.py:291` 处更改需要调试的 repo url，打断点后在 `/datadrive/yang/exp` 目录下通过 `sh [run.sh](http://run.sh/) -d` 启动调试。
-- 输入特定的 sql file 进行调试：
-    - 在 `s4_parse_sql.py:1554` 处更改需要调试的 sql file 文件路径，打断点后在 `/datadrive/yang/exp` 目录下通过 `sh [run.sh](http://run.sh/) -d` 启动调试。
-- 输入特定的 statement 进行调试：
-    - 对于 query 而言，在 parse_query.py:2219 下插入需要 parse 的语句，打断点后在 `/datadrive/yang/exp` 目录下通过 `sh [run.sh](http://run.sh/) -d` 启动调试即可。
+# Debugging Methods
+
+> Debugging for this project is done using Python 3rd party tool PuDB.
+>
+- Debugging for a specific user:
+    - Uncomment line 288 in `repo_parse_sql.py` to aggregate repos belonging to the same user
+
+- Debugging for a specific repository:
+    - Change the repo URL to be debugged at line 291 in `repo_parse_sql.py`, set breakpoints, and start debugging in the `Please stay tuned for further release!` directory using `sh run.sh -d`.
+- Debugging for a specific SQL file:
+    - Change the file path of the SQL file to be debugged at line 1554 in `s4_parse_sql.py`, set breakpoints, and start debugging in the `/datadrive/yang/exp` directory using `sh run.sh -d`.
+- Debugging for a specific statement:
+    - For queries, insert the statement to be parsed at `parse_query.py:2219`, set breakpoints, and start debugging in the `Please stay tuned for further release!` directory using `sh run.sh -d`.
