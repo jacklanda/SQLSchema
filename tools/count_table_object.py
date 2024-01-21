@@ -6,6 +6,6 @@ if __name__ == "__main__":
         content = fp.read()
         # table_obj_nums = content.count("s4_parse_sql.Table object")
         # table_name_nums = content.count("table name:")
-        table_nums =
+        table_nums = None
     print("table_obj_nums:", table_obj_nums)
     print("table_name_nums:", table_name_nums)

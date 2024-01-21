@@ -1,1 +1,6 @@
-sqlparse==0.4.1
+beautifulsoup4==4.12.3
+Pebble==5.0.3
+plotext==5.2.8
+python_Levenshtein==0.23.0
+sql_metadata==2.10.0
+sqlparse==0.4.4
