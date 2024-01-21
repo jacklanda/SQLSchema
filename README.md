@@ -1,5 +1,5 @@
 # SQL Schema Dataset
-This project is like a giant piggy, however, its nature of being a snake is never changed.<br>
+This project is like a cute piggy, however, its nature of being a snake is never changed.<br>
 Don't you think so? [@Yeye He](https://www.microsoft.com/en-us/research/people/yeyehe), [Weiwei Cui](https://www.microsoft.com/en-us/research/people/weiweicu) <br><br>
 <figure>
 <img src="./assets/sql-schema-dataset-logo.png" alt="Piggy Snake" style="width:600px;"/>
