@@ -3,4 +3,4 @@ Pebble==5.0.3
 plotext==5.2.8
 python_Levenshtein==0.23.0
 sql_metadata==2.10.0
-sqlparse==0.4.4
+sqlparse==0.5.0
